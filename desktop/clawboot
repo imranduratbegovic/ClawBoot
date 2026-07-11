@@ -1,148 +1,78 @@
-#!/usr/bin/env python3
-"""Native Raspberry Pi OS window for the loopback setup service."""
+#!/bin/sh
+set -u
 
-import os
-import pathlib
-import urllib.request
+SETUP_ORIGIN=http://127.0.0.1:3210
+STATUS_URL="$SETUP_ORIGIN/api/v1/status"
+NODE=/opt/clawboot/runtime/bin/node
 
-import gi
+service_ready() {
+  [ -x "$NODE" ] || return 1
+  "$NODE" -e "fetch('$STATUS_URL', { signal: AbortSignal.timeout(1500) }).then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1
+}
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("WebKit2", "4.1")
-from gi.repository import Gio, GLib, Gtk, WebKit2  # noqa: E402
+wait_for_service() {
+  attempt=0
+  while [ "$attempt" -lt 25 ]; do
+    if service_ready; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.4
+  done
+  return 1
+}
 
+show_error() {
+  message="ClawBoot could not repair its local setup service. Open the latest ClawBoot package with Package Install again, then retry."
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title=ClawBoot --text="$message" >/dev/null 2>&1
+  elif command -v xmessage >/dev/null 2>&1; then
+    xmessage -center "$message" >/dev/null 2>&1
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send "ClawBoot could not start" "$message" >/dev/null 2>&1
+  fi
+}
 
-APP_ID = "io.openclaw.ClawBoot"
-APP_TITLE = "ClawBoot"
-SETUP_ORIGIN = "http://127.0.0.1:3210"
-CONTROL_ORIGIN = "http://127.0.0.1:18789"
+if ! wait_for_service; then
+  if command -v pkexec >/dev/null 2>&1; then
+    pkexec /opt/clawboot/bin/clawboot-repair >/dev/null 2>&1 || true
+  fi
+  if ! wait_for_service; then
+    show_error
+    exit 1
+  fi
+fi
 
+for browser in chromium chromium-browser; do
+  if command -v "$browser" >/dev/null 2>&1; then
+    profile="${XDG_CONFIG_HOME:-$HOME/.config}/clawboot/browser"
+    mkdir -p "$profile"
+    exec "$browser" \
+      --app="$SETUP_ORIGIN" \
+      --class=io.openclaw.ClawBoot \
+      --name=ClawBoot \
+      --user-data-dir="$profile" \
+      --incognito \
+      --disable-extensions \
+      --disable-sync \
+      --no-first-run \
+      --no-default-browser-check
+  fi
+done
 
-class SetupWindow(Gtk.ApplicationWindow):
-    def __init__(self, application):
-        super().__init__(application=application, title=APP_TITLE)
-        self.set_default_size(800, 600)
-        self.set_size_request(760, 600)
-        self.set_position(Gtk.WindowPosition.CENTER)
+for browser in firefox-esr firefox; do
+  if command -v "$browser" >/dev/null 2>&1; then
+    exec "$browser" --private-window "$SETUP_ORIGIN"
+  fi
+done
 
-        self.stack = Gtk.Stack()
-        self.add(self.stack)
+if command -v xdg-open >/dev/null 2>&1; then
+  exec xdg-open "$SETUP_ORIGIN"
+fi
 
-        loading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        loading.set_halign(Gtk.Align.CENTER)
-        loading.set_valign(Gtk.Align.CENTER)
-        spinner = Gtk.Spinner()
-        spinner.start()
-        loading.pack_start(spinner, False, False, 0)
-        loading.pack_start(Gtk.Label(label="Starting ClawBoot…"), False, False, 0)
-        self.status_label = Gtk.Label(label="Waiting for the local setup service.")
-        loading.pack_start(self.status_label, False, False, 0)
-        self.stack.add_named(loading, "loading")
+if command -v gio >/dev/null 2>&1; then
+  exec gio open "$SETUP_ORIGIN"
+fi
 
-        failed = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        failed.set_border_width(36)
-        failed.set_halign(Gtk.Align.CENTER)
-        failed.set_valign(Gtk.Align.CENTER)
-        title = Gtk.Label()
-        title.set_markup("<b>The setup service is not available</b>")
-        failed.pack_start(title, False, False, 0)
-        self.error_label = Gtk.Label(label="The service may still be starting.")
-        failed.pack_start(self.error_label, False, False, 0)
-        retry = Gtk.Button(label="Try again")
-        retry.connect("clicked", lambda _button: self.begin_waiting())
-        failed.pack_start(retry, False, False, 0)
-        self.stack.add_named(failed, "failed")
-
-        context = WebKit2.WebContext.new_ephemeral()
-        context.connect("download-started", self.on_download_started)
-        self.webview = WebKit2.WebView.new_with_context(context)
-        settings = self.webview.get_settings()
-        settings.set_enable_developer_extras(False)
-        settings.set_enable_write_console_messages_to_stdout(False)
-        self.webview.connect("decide-policy", self.on_decide_policy)
-        self.webview.connect("permission-request", self.on_permission_request)
-        self.webview.connect("load-failed", self.on_load_failed)
-        self.stack.add_named(self.webview, "app")
-
-        self.attempts = 0
-        self.begin_waiting()
-
-    def begin_waiting(self):
-        self.attempts = 0
-        self.stack.set_visible_child_name("loading")
-        self.status_label.set_text("Waiting for the local setup service.")
-        GLib.timeout_add(500, self.check_service)
-
-    def check_service(self):
-        self.attempts += 1
-        try:
-            request = urllib.request.Request(
-                f"{SETUP_ORIGIN}/api/v1/status",
-                headers={"Accept": "application/json"},
-            )
-            with urllib.request.urlopen(request, timeout=0.4) as response:
-                if response.status != 200:
-                    raise OSError("Unexpected service response")
-            self.webview.load_uri(SETUP_ORIGIN)
-            self.stack.set_visible_child_name("app")
-            return False
-        except Exception:
-            if self.attempts >= 20:
-                self.error_label.set_text(
-                    "ClawBoot could not connect to 127.0.0.1:3210."
-                )
-                self.stack.set_visible_child_name("failed")
-                return False
-            self.status_label.set_text(f"Waiting for the local setup service… ({self.attempts}/20)")
-            return True
-
-    def on_decide_policy(self, _webview, decision, decision_type):
-        if decision_type not in (
-            WebKit2.PolicyDecisionType.NAVIGATION_ACTION,
-            WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION,
-        ):
-            return False
-        uri = decision.get_request().get_uri()
-        if uri == SETUP_ORIGIN or uri.startswith(f"{SETUP_ORIGIN}/"):
-            decision.use()
-            return True
-        if uri == CONTROL_ORIGIN or uri.startswith(f"{CONTROL_ORIGIN}/") or uri.startswith("https://docs.openclaw.ai/") or uri.startswith("https://t.me/"):
-            Gio.AppInfo.launch_default_for_uri(uri, None)
-        decision.ignore()
-        return True
-
-    @staticmethod
-    def on_permission_request(_webview, request):
-        request.deny()
-        return True
-
-    def on_load_failed(self, _webview, _event, _uri, error):
-        self.error_label.set_text(f"The setup interface could not be loaded: {error.message}")
-        self.stack.set_visible_child_name("failed")
-        return True
-
-    @staticmethod
-    def on_download_started(_context, download):
-        downloads = pathlib.Path.home() / "Downloads"
-        downloads.mkdir(parents=True, exist_ok=True)
-        filename = "clawboot-report.log"
-        suggested = download.get_response().get_suggested_filename() if download.get_response() else None
-        if suggested:
-            filename = os.path.basename(suggested)
-        download.set_destination((downloads / filename).as_uri())
-
-
-class SetupApplication(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
-
-    def do_activate(self):
-        window = self.get_active_window()
-        if window is None:
-            window = SetupWindow(self)
-        window.show_all()
-        window.present()
-
-
-if __name__ == "__main__":
-    raise SystemExit(SetupApplication().run(None))
+show_error
+exit 1

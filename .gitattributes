@@ -1,0 +1,7 @@
+*.sh text eol=lf
+*.py text eol=lf
+desktop/clawboot text eol=lf
+packaging/clawboot-helper text eol=lf
+packaging/clawboot-service text eol=lf
+packaging/clawboot-repair text eol=lf
+packaging/debian/* text eol=lf

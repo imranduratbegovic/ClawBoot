@@ -1,25 +1,21 @@
 #!/bin/sh
-set -eu
+set -u
 
-SERVICE_USER=openclaw
+warn() {
+  echo "ClawBoot installer warning: $*" >&2
+}
 
-if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-  useradd --system --create-home --home-dir /var/lib/openclaw --shell /bin/bash "$SERVICE_USER"
-fi
+case "${1:-}" in
+  configure)
+    /opt/clawboot/bin/clawboot-repair || \
+      warn "initial service setup was deferred; ClawBoot will offer a graphical repair on first launch."
 
-install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 \
-  /var/lib/openclaw \
-  /var/lib/openclaw/.npm-global
-
-SERVICE_UID="$(id -u "$SERVICE_USER")"
-loginctl enable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
-systemctl start "user@${SERVICE_UID}.service" >/dev/null 2>&1 || true
-
-systemctl daemon-reload
-systemctl enable clawboot.service >/dev/null 2>&1
-systemctl restart clawboot.service
-
-update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
-gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+    ;;
+  *)
+    # Rollback and abort invocations must not start a partially configured service.
+    ;;
+esac
 
 exit 0

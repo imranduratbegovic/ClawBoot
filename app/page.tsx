@@ -300,7 +300,7 @@ export default function Home() {
             const available = index <= highestStep || index <= step || installState === "complete";
             return <button key={label} className={index === step ? "is-active" : ""} disabled={!available || index === 4 && installState === "running"} onClick={() => available && goTo(index)} aria-current={index === step ? "step" : undefined}>{label}{index < step && <span aria-label="complete">✓</span>}</button>;
           })}</nav>
-          <div className="rail-version">{APP_NAME}<br />Version 1.0.0</div>
+          <div className="rail-version">{APP_NAME}<br />Version 1.0.1</div>
         </aside>
 
         <section className="step-content" aria-live="polite">

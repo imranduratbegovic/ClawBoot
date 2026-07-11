@@ -4,11 +4,11 @@ An open-source Raspberry Pi OS application that installs and configures OpenClaw
 
 ## Download
 
-[**Download ClawBoot for Raspberry Pi 5**](https://github.com/imranduratbegovic/ClawBoot/releases/latest/download/clawboot_1.0.0_arm64.deb)
+[**Download ClawBoot for Raspberry Pi 5**](https://github.com/imranduratbegovic/ClawBoot/releases/latest/download/clawboot_arm64.deb)
 
 Open the downloaded package with **Package Install**, then click **Install**. No terminal is required.
 
-The interface follows the same basic pattern as Raspberry Pi Imager: one native window, a clear step list, one task per screen, and normal Back / Next / Install controls.
+The interface follows the same basic pattern as Raspberry Pi Imager: one dedicated app window, a clear step list, one task per screen, and normal Back / Next / Install controls.
 
 ## What the app does
 
@@ -35,16 +35,16 @@ Installation is resumable. Closing the window does not stop an active download o
 
 No terminal is needed:
 
-1. Download `clawboot_1.0.0_arm64.deb` onto a Raspberry Pi 5 running 64-bit Raspberry Pi OS with Desktop.
+1. Download `clawboot_arm64.deb` onto a Raspberry Pi 5 running 64-bit Raspberry Pi OS with Desktop.
 2. Open **Files**, find the downloaded package, and double-click it. If asked which application to use, select **Package Install**.
 3. Click **Install** and enter the Raspberry Pi desktop password in the graphical prompt.
 4. Open **Raspberry Pi menu → System Tools → ClawBoot**.
 
-The package includes its own verified ARM64 Node.js runtime, installs the desktop launcher, creates the restricted background service, and starts it automatically. ClawBoot itself never opens a terminal or asks the user to type a command.
+The package includes its own verified ARM64 Node.js runtime and does not depend on optional GTK, WebKit, Python or development packages. It installs the desktop launcher, creates the restricted background service, and starts it automatically. ClawBoot itself never opens a terminal or asks the user to type a command.
 
 The desktop package installs:
 
-- the GTK application launcher in `/usr/bin/clawboot`;
+- the desktop app launcher in `/usr/bin/clawboot`;
 - a desktop-menu entry and application icon;
 - the setup service in `/opt/clawboot`;
 - a restricted systemd service on `127.0.0.1:3210`;
@@ -72,7 +72,7 @@ npm run dev
 Build the graphical ARM64 desktop package after `npm run build`:
 
 ```bash
-python3 scripts/build-deb.py --output clawboot_1.0.0_arm64.deb
+python3 scripts/build-deb.py --output clawboot_1.0.1_arm64.deb
 ```
 
 The package builder downloads the official Node.js Linux ARM64 archive and refuses to package it unless its SHA-256 matches the pinned release checksum.

@@ -16,7 +16,7 @@ import time
 import urllib.request
 
 
-PACKAGE_VERSION = "1.0.0"
+PACKAGE_VERSION = "1.0.1"
 NODE_VERSION = "24.18.0"
 NODE_ARCHIVE = f"node-v{NODE_VERSION}-linux-arm64.tar.xz"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ARCHIVE}"
@@ -28,12 +28,18 @@ def copy_file(source: Path, target: Path) -> None:
     shutil.copy2(source, target)
 
 
+def copy_script(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
+
+
 def prepare_data_tree(root: Path, stage: Path) -> None:
     shutil.copytree(root / "setupd", stage / "opt/clawboot/setupd")
     shutil.copytree(root / "dist/client", stage / "opt/clawboot/dist/client")
-    copy_file(root / "packaging/clawboot-service", stage / "opt/clawboot/bin/clawboot-service")
-    copy_file(root / "desktop/clawboot", stage / "usr/bin/clawboot")
-    copy_file(root / "packaging/clawboot-helper", stage / "usr/local/libexec/clawboot-helper")
+    copy_script(root / "packaging/clawboot-service", stage / "opt/clawboot/bin/clawboot-service")
+    copy_script(root / "packaging/clawboot-repair", stage / "opt/clawboot/bin/clawboot-repair")
+    copy_script(root / "desktop/clawboot", stage / "usr/bin/clawboot")
+    copy_script(root / "packaging/clawboot-helper", stage / "usr/local/libexec/clawboot-helper")
     copy_file(root / "packaging/clawboot.sudoers", stage / "etc/sudoers.d/clawboot")
     copy_file(root / "packaging/clawboot.service", stage / "usr/lib/systemd/system/clawboot.service")
     copy_file(
@@ -88,6 +94,7 @@ def data_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
         "usr/bin/clawboot",
         "usr/local/libexec/clawboot-helper",
         "opt/clawboot/bin/clawboot-service",
+        "opt/clawboot/bin/clawboot-repair",
     }:
         info.mode = 0o755
     elif path == "etc/sudoers.d/clawboot":

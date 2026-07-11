@@ -1,0 +1,72 @@
+name: Verify ARM64 package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-install-and-start:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Test, lint, and audit
+        run: |
+          npm test
+          npm run lint
+          npm audit --omit=dev
+
+      - name: Validate Linux scripts
+        run: |
+          dash -n \
+            desktop/clawboot \
+            packaging/clawboot-helper \
+            packaging/clawboot-repair \
+            packaging/clawboot-service \
+            packaging/debian/postinst \
+            packaging/debian/prerm \
+            packaging/debian/postrm \
+            scripts/install.sh
+
+      - name: Build the release package
+        run: python3 scripts/build-deb.py --output /tmp/clawboot_arm64.deb
+
+      - name: Inspect Debian metadata
+        run: |
+          test "$(dpkg-deb --field /tmp/clawboot_arm64.deb Architecture)" = arm64
+          test "$(dpkg-deb --field /tmp/clawboot_arm64.deb Depends)" = "sudo, systemd, libc6, libstdc++6, libgcc-s1"
+          dpkg-deb --info /tmp/clawboot_arm64.deb
+          dpkg-deb --contents /tmp/clawboot_arm64.deb
+
+      - name: Install with APT and start ClawBoot
+        run: |
+          sudo apt-get install --no-install-recommends -y /tmp/clawboot_arm64.deb
+          sudo apt-get check
+          test -z "$(sudo dpkg --audit)"
+          test "$(/opt/clawboot/runtime/bin/node --version)" = v24.18.0
+          sudo systemctl restart clawboot.service
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:3210/api/v1/status >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          sudo systemctl status --no-pager clawboot.service
+          exit 1

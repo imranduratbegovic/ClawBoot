@@ -35,7 +35,6 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl git sudo zstd \
-  python3 python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
   desktop-file-utils hicolor-icon-theme
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
@@ -62,8 +61,12 @@ if [ ! -f "$SOURCE_DIR/dist/client/index.html" ]; then
   exit 1
 fi
 
+if ! getent group "$SERVICE_USER" >/dev/null 2>&1; then
+  groupadd --system "$SERVICE_USER"
+fi
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-  useradd --system --create-home --home-dir /var/lib/openclaw --shell /bin/bash "$SERVICE_USER"
+  useradd --system --gid "$SERVICE_USER" --create-home \
+    --home-dir /var/lib/openclaw --shell /bin/bash "$SERVICE_USER"
 fi
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 /var/lib/openclaw /var/lib/openclaw/.npm-global
 
@@ -77,6 +80,7 @@ install -d -o root -g root -m 0755 "$STAGING" "$STAGING/dist" "$STAGING/bin"
 cp -a "$SOURCE_DIR/setupd" "$STAGING/setupd"
 cp -a "$SOURCE_DIR/dist/client" "$STAGING/dist/client"
 install -o root -g root -m 0755 "$SOURCE_DIR/packaging/clawboot-service" "$STAGING/bin/clawboot-service"
+install -o root -g root -m 0755 "$SOURCE_DIR/packaging/clawboot-repair" "$STAGING/bin/clawboot-repair"
 chown -R root:root "$STAGING"
 rm -rf "$INSTALL_DIR"
 mv "$STAGING" "$INSTALL_DIR"

@@ -42,7 +42,9 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(css, /--red:\s*#bd1e3e/i);
   assert.match(packageJson, /"name": "clawboot"/);
   assert.match(service, /text\/event-stream/);
-  assert.match(launcher, /WebKit2\.WebContext\.new_ephemeral/);
+  assert.match(launcher, /--app="\$SETUP_ORIGIN"/);
+  assert.match(launcher, /firefox-esr firefox/);
+  assert.doesNotMatch(launcher, /python|WebKit|import gi/);
   assert.match(launcher, /127\.0\.0\.1:3210/);
   assert.match(desktopEntry, /Terminal=false/);
 });
