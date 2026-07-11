@@ -5,6 +5,6 @@
 SHA-256:
 
 ```text
-c733989d3f0a122d0cbb9ff5e054b5667beca6a45e06b153d27eca54507e848f  clawboot_1.0.1_arm64.deb
-c733989d3f0a122d0cbb9ff5e054b5667beca6a45e06b153d27eca54507e848f  clawboot_arm64.deb
+df2bab8b46ee209e880d2fb571e7aa6a6980624982727e8f111db45a7b9e152d  clawboot_1.0.1_arm64.deb
+df2bab8b46ee209e880d2fb571e7aa6a6980624982727e8f111db45a7b9e152d  clawboot_arm64.deb
 ```

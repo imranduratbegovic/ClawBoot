@@ -140,7 +140,10 @@ def add_bytes(output: tarfile.TarFile, name: str, value: bytes, mode: int) -> No
 def build_control_archive(root: Path, target: Path, installed_kib: int) -> None:
     control = (root / "packaging/debian/control").read_text(encoding="utf-8").rstrip()
     control = f"{control}\nInstalled-Size: {installed_kib}\n"
-    with tarfile.open(target, "w:xz", format=tarfile.PAX_FORMAT) as output:
+    # dpkg rejects POSIX PAX extended headers in package filesystem archives.
+    # GNU tar format supports the Node.js runtime's long paths without emitting
+    # the unsupported PAX type-x records.
+    with tarfile.open(target, "w:xz", format=tarfile.GNU_FORMAT) as output:
         add_bytes(output, "./control", control.encode(), 0o644)
         for name in ("postinst", "prerm", "postrm"):
             body = (root / f"packaging/debian/{name}").read_bytes().replace(b"\r\n", b"\n")
@@ -192,7 +195,7 @@ def main() -> int:
         prepare_data_tree(root, stage)
         data_tar = work / "data.tar.xz"
         staged_size = sum(path.stat().st_size for path in stage.rglob("*") if path.is_file())
-        with tarfile.open(data_tar, "w:xz", format=tarfile.PAX_FORMAT) as data:
+        with tarfile.open(data_tar, "w:xz", format=tarfile.GNU_FORMAT) as data:
             for child in sorted(stage.iterdir()):
                 data.add(child, arcname=f"./{child.name}", recursive=True, filter=data_filter)
             node_size = add_node_runtime(data, node_archive)
