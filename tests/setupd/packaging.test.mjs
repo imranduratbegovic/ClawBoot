@@ -65,6 +65,7 @@ test("desktop package uses only Pi-standard base dependencies and self-heals", a
   assert.match(builder, /replace\(b"\\r\\n", b"\\n"\)/);
   assert.match(builder, /format=tarfile\.GNU_FORMAT/g);
   assert.doesNotMatch(builder, /tarfile\.PAX_FORMAT/);
+  assert.match(builder, /TarInfo\("\.\/opt\/clawboot\/runtime"\)/);
 
   for (const script of [wrapper, repair, launcher]) {
     assert.equal(script.startsWith("#!/bin/sh\n"), true);

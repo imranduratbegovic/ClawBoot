@@ -107,6 +107,13 @@ def data_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
 def add_node_runtime(output: tarfile.TarFile, archive_path: Path) -> int:
     installed_bytes = 0
     prefix = f"node-v{NODE_VERSION}-linux-arm64/"
+    runtime_root = tarfile.TarInfo("./opt/clawboot/runtime")
+    runtime_root.type = tarfile.DIRTYPE
+    runtime_root.mode = 0o755
+    runtime_root.uid = runtime_root.gid = 0
+    runtime_root.uname = runtime_root.gname = "root"
+    runtime_root.mtime = int(time.time())
+    output.addfile(runtime_root)
     with tarfile.open(archive_path, "r:xz") as source:
         for member in source.getmembers():
             if member.name == prefix.rstrip("/"):
