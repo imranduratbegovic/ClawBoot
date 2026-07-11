@@ -45,19 +45,28 @@ jobs:
             packaging/debian/postrm \
             scripts/install.sh
 
-      - name: Build the release package
-        run: python3 scripts/build-deb.py --output /tmp/clawboot_arm64.deb
+      - name: Build the release package from source
+        run: python3 scripts/build-deb.py --output /tmp/clawboot-built-arm64.deb
+
+      - name: Verify the checked-in release bytes
+        run: |
+          mapfile -t release_packages < <(find release -maxdepth 1 -type f -name 'clawboot_*_arm64.deb' | sort)
+          test "${#release_packages[@]}" -eq 1
+          (cd release && sha256sum --ignore-missing --check SHA256SUMS)
+          cp "${release_packages[0]}" /tmp/clawboot-release-arm64.deb
 
       - name: Inspect Debian metadata
         run: |
-          test "$(dpkg-deb --field /tmp/clawboot_arm64.deb Architecture)" = arm64
-          test "$(dpkg-deb --field /tmp/clawboot_arm64.deb Depends)" = "sudo, systemd, libc6, libstdc++6, libgcc-s1"
-          dpkg-deb --info /tmp/clawboot_arm64.deb
-          dpkg-deb --contents /tmp/clawboot_arm64.deb
+          for package in /tmp/clawboot-built-arm64.deb /tmp/clawboot-release-arm64.deb; do
+            test "$(dpkg-deb --field "$package" Architecture)" = arm64
+            test "$(dpkg-deb --field "$package" Depends)" = "sudo, systemd, libc6, libstdc++6, libgcc-s1"
+            dpkg-deb --info "$package"
+            dpkg-deb --contents "$package"
+          done
 
       - name: Install with APT and start ClawBoot
         run: |
-          sudo apt-get install --no-install-recommends -y /tmp/clawboot_arm64.deb
+          sudo apt-get install --no-install-recommends -y /tmp/clawboot-release-arm64.deb
           sudo apt-get check
           test -z "$(sudo dpkg --audit)"
           test "$(/opt/clawboot/runtime/bin/node --version)" = v24.18.0
