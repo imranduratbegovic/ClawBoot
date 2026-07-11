@@ -4,7 +4,7 @@ An open-source Raspberry Pi OS application that installs and configures OpenClaw
 
 ## Download
 
-[**Download ClawBoot for Raspberry Pi 5**](https://github.com/imranduratbegovic/ClawBoot/releases/latest/download/clawboot_0.2.0_arm64.deb)
+[**Download ClawBoot for Raspberry Pi 5**](https://github.com/imranduratbegovic/ClawBoot/releases/latest/download/clawboot_1.0.0_arm64.deb)
 
 Open the downloaded package with **Package Install**, then click **Install**. No terminal is required.
 
@@ -35,7 +35,7 @@ Installation is resumable. Closing the window does not stop an active download o
 
 No terminal is needed:
 
-1. Download `clawboot_0.2.0_arm64.deb` onto a Raspberry Pi 5 running 64-bit Raspberry Pi OS with Desktop.
+1. Download `clawboot_1.0.0_arm64.deb` onto a Raspberry Pi 5 running 64-bit Raspberry Pi OS with Desktop.
 2. Open **Files**, find the downloaded package, and double-click it. If asked which application to use, select **Package Install**.
 3. Click **Install** and enter the Raspberry Pi desktop password in the graphical prompt.
 4. Open **Raspberry Pi menu → System Tools → ClawBoot**.
@@ -72,7 +72,7 @@ npm run dev
 Build the graphical ARM64 desktop package after `npm run build`:
 
 ```bash
-python3 scripts/build-deb.py --output clawboot_0.2.0_arm64.deb
+python3 scripts/build-deb.py --output clawboot_1.0.0_arm64.deb
 ```
 
 The package builder downloads the official Node.js Linux ARM64 archive and refuses to package it unless its SHA-256 matches the pinned release checksum.

@@ -16,7 +16,7 @@ import time
 import urllib.request
 
 
-PACKAGE_VERSION = "0.2.0"
+PACKAGE_VERSION = "1.0.0"
 NODE_VERSION = "24.18.0"
 NODE_ARCHIVE = f"node-v{NODE_VERSION}-linux-arm64.tar.xz"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ARCHIVE}"

@@ -1,9 +1,9 @@
-# ClawBoot 0.2.0
+# ClawBoot 1.0.0
 
-`clawboot_0.2.0_arm64.deb` is the graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
+`clawboot_1.0.0_arm64.deb` is the graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
 
 SHA-256:
 
 ```text
-e234c265343fff3f4618187759315fe85fe09b4f6f6c9e383545e6352a7cc7c4  clawboot_0.2.0_arm64.deb
+64e4d0ff006f8326fc860e909645ac7c97a8382fba644825dabe3c97667938fd  clawboot_1.0.0_arm64.deb
 ```
