@@ -2,7 +2,11 @@
 
 An open-source Raspberry Pi OS application that installs and configures OpenClaw with a fully local Gemma 4 E2B model. The goal is simple: replace the command-line setup with a short, reliable wizard.
 
-[Download the Raspberry Pi 5 installer](https://github.com/imranduratbegovic/ClawBoot/raw/main/release/clawboot_0.2.0_arm64.deb)
+## Download
+
+[**Download ClawBoot for Raspberry Pi 5**](https://github.com/imranduratbegovic/ClawBoot/releases/latest/download/clawboot_0.2.0_arm64.deb)
+
+Open the downloaded package with **Package Install**, then click **Install**. No terminal is required.
 
 The interface follows the same basic pattern as Raspberry Pi Imager: one native window, a clear step list, one task per screen, and normal Back / Next / Install controls.
 
