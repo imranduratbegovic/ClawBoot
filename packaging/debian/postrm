@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+systemctl daemon-reload >/dev/null 2>&1 || true
+update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+
+# User configuration and downloaded models are deliberately preserved.
+exit 0

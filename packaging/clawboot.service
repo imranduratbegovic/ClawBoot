@@ -1,0 +1,36 @@
+[Unit]
+Description=ClawBoot Raspberry Pi Setup
+Documentation=https://docs.openclaw.ai/install/raspberry-pi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/opt/clawboot
+Environment=HOME=/var/lib/openclaw
+Environment=PATH=/opt/clawboot/runtime/bin:/var/lib/openclaw/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=OPENCLAW_SETUP_STATE_DIR=/var/lib/clawboot
+Environment=OPENCLAW_SETUP_STATIC_DIR=/opt/clawboot/dist/client
+Environment=OPENCLAW_SETUP_HOST=127.0.0.1
+Environment=OPENCLAW_SETUP_PORT=3210
+Environment=CLAWBOOT_RUNTIME_BIN=/opt/clawboot/runtime/bin
+EnvironmentFile=-/etc/default/clawboot
+StateDirectory=clawboot
+StateDirectoryMode=0700
+ExecStartPre=/usr/bin/test -f /opt/clawboot/dist/client/index.html
+ExecStart=/opt/clawboot/bin/clawboot-service
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+SERVICE_UID="$(id -u)"
+export XDG_RUNTIME_DIR="/run/user/$SERVICE_UID"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export CLAWBOOT_RUNTIME_BIN=/opt/clawboot/runtime/bin
+
+NODE=/opt/clawboot/runtime/bin/node
+if [ ! -x "$NODE" ]; then
+  NODE="$(command -v node)"
+fi
+
+exec "$NODE" /opt/clawboot/setupd/index.mjs

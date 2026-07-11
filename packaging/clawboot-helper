@@ -1,0 +1,138 @@
+#!/bin/sh
+set -eu
+
+ACTION="${1:-}"
+if [ "$#" -ne 1 ]; then
+  echo "Exactly one allowlisted action is required." >&2
+  exit 64
+fi
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export DEBIAN_FRONTEND=noninteractive
+
+require_pi_arm64() {
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    aarch64|arm64) ;;
+    *)
+      echo "Ollama setup requires a 64-bit ARM operating system; found $ARCH." >&2
+      exit 65
+      ;;
+  esac
+
+  if [ -r /proc/device-tree/model ] && ! tr -d '\000' < /proc/device-tree/model | grep -qi 'Raspberry Pi 5'; then
+    echo "This installer only supports Raspberry Pi 5 hardware." >&2
+    exit 65
+  fi
+}
+
+prepare_system() {
+  apt-get update
+  apt-get install -y --no-install-recommends ca-certificates curl git tar zstd
+}
+
+write_ollama_service() {
+  if ! id ollama >/dev/null 2>&1; then
+    useradd --system --create-home --home-dir /usr/share/ollama --shell /usr/sbin/nologin ollama
+  fi
+  install -d -o ollama -g ollama -m 0755 /usr/share/ollama
+  install -d -m 0755 /etc/systemd/system
+
+  SERVICE_TMP="$(mktemp)"
+  trap 'rm -f "$SERVICE_TMP"' EXIT HUP INT TERM
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=Ollama Service' \
+    'After=network-online.target' \
+    'Wants=network-online.target' \
+    '' \
+    '[Service]' \
+    'ExecStart=/usr/bin/ollama serve' \
+    'User=ollama' \
+    'Group=ollama' \
+    'Restart=always' \
+    'RestartSec=3' \
+    'Environment="HOME=/usr/share/ollama"' \
+    '' \
+    '[Install]' \
+    'WantedBy=multi-user.target' > "$SERVICE_TMP"
+  install -o root -g root -m 0644 "$SERVICE_TMP" /etc/systemd/system/ollama.service
+  rm -f "$SERVICE_TMP"
+  trap - EXIT HUP INT TERM
+}
+
+install_ollama_arm64() {
+  require_pi_arm64
+  prepare_system
+
+  ARCHIVE="$(mktemp --suffix=.tar.zst)"
+  trap 'rm -f "$ARCHIVE"' EXIT HUP INT TERM
+  echo "Downloading the official Ollama Linux arm64 archive."
+  curl --fail --show-error --location --proto '=https' --tlsv1.2 \
+    --output "$ARCHIVE" \
+    https://ollama.com/download/ollama-linux-arm64.tar.zst
+  echo "Installing Ollama into /usr."
+  zstd --decompress --stdout "$ARCHIVE" | tar -xf - -C /usr
+  rm -f "$ARCHIVE"
+  trap - EXIT HUP INT TERM
+
+  test -x /usr/bin/ollama
+  write_ollama_service
+  echo "Ollama arm64 installed."
+}
+
+configure_ollama_loopback() {
+  require_pi_arm64
+  if [ ! -x /usr/bin/ollama ] && [ -x /usr/local/bin/ollama ]; then
+    ln -sf /usr/local/bin/ollama /usr/bin/ollama
+  fi
+  test -x /usr/bin/ollama
+  if [ ! -f /etc/systemd/system/ollama.service ]; then
+    write_ollama_service
+  fi
+
+  install -d -o root -g root -m 0755 /etc/systemd/system/ollama.service.d
+  MEMORY_KIB="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)"
+  if [ "${MEMORY_KIB:-0}" -ge 14680064 ]; then
+    CONTEXT_LENGTH=16384
+  else
+    CONTEXT_LENGTH=8192
+  fi
+  OVERRIDE_TMP="$(mktemp)"
+  trap 'rm -f "$OVERRIDE_TMP"' EXIT HUP INT TERM
+  printf '%s\n' \
+    '[Service]' \
+    'Environment="OLLAMA_HOST=127.0.0.1:11434"' \
+    'Environment="OLLAMA_NO_CLOUD=1"' \
+    'Environment="OLLAMA_MAX_LOADED_MODELS=1"' \
+    'Environment="OLLAMA_NUM_PARALLEL=1"' \
+    "Environment=\"OLLAMA_CONTEXT_LENGTH=$CONTEXT_LENGTH\"" > "$OVERRIDE_TMP"
+  install -o root -g root -m 0644 "$OVERRIDE_TMP" /etc/systemd/system/ollama.service.d/10-loopback.conf
+  rm -f "$OVERRIDE_TMP"
+  trap - EXIT HUP INT TERM
+
+  systemctl daemon-reload
+  systemctl enable --now ollama.service
+
+  ATTEMPT=0
+  until curl --fail --silent --show-error http://127.0.0.1:11434/api/tags >/dev/null; do
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ "$ATTEMPT" -ge 30 ]; then
+      echo "Ollama did not become ready on its loopback address." >&2
+      systemctl status --no-pager ollama.service || true
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "Ollama is running on 127.0.0.1:11434 with a $CONTEXT_LENGTH-token context."
+}
+
+case "$ACTION" in
+  prepare-system) prepare_system ;;
+  install-ollama-arm64) install_ollama_arm64 ;;
+  configure-ollama-loopback) configure_ollama_loopback ;;
+  *)
+    echo "Action is not allowlisted: $ACTION" >&2
+    exit 64
+    ;;
+esac
