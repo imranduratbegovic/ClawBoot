@@ -3,7 +3,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createSetupService, parseDownloadProgress } from "../../setupd/service.mjs";
+import { createSetupService, diagnoseSetupFailure, parseDownloadProgress } from "../../setupd/service.mjs";
+
+test("setup failures become plain-language technical diagnoses", () => {
+  const server = diagnoseSetupFailure(new Error("https://registry.npmjs.org/openclaw returned HTTP 500."), { title: "Install OpenClaw" });
+  assert.equal(server.code, "REMOTE_SERVER_ERROR");
+  assert.equal(server.step, "Install OpenClaw");
+  assert.match(server.problem, /remote.*server/i);
+  assert.match(server.nextAction, /Retry/);
+
+  const disk = diagnoseSetupFailure(new Error("ENOSPC: no space left on device"), { title: "Download model" });
+  assert.equal(disk.code, "DISK_FULL");
+  assert.match(disk.nextAction, /Free some disk space/);
+});
 
 test("Ollama byte markers become bounded resumable download progress", () => {
   assert.deepEqual(parseDownloadProgress("CLAWBOOT_DOWNLOAD ollama 778002133 1556004266"), {

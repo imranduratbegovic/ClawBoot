@@ -350,6 +350,13 @@ label:has(input:focus-visible) {
   white-space: pre-wrap;
 }
 
+.failure-diagnosis { background: #fff8e8; border: 1px solid #d8b25f; margin-top: 8px; padding: 12px; }
+.failure-diagnosis > strong { color: #7a4d00; display: block; font-size: 11px; margin-bottom: 8px; }
+.failure-diagnosis dl { margin: 0; }
+.failure-diagnosis dl > div { border-top: 1px solid #ead8ad; display: grid; font-size: 11px; gap: 10px; grid-template-columns: 90px 1fr; padding: 6px 0; }
+.failure-diagnosis dt { color: var(--muted); font-weight: 700; }
+.failure-diagnosis dd { margin: 0; overflow-wrap: anywhere; }
+
 .done-summary {
   align-items: center;
   border: 1px solid var(--line);

@@ -24,6 +24,14 @@ type DownloadState = {
   resumable: boolean;
   paused?: boolean;
 };
+type FailureDiagnosis = {
+  code: string;
+  step: string;
+  problem: string;
+  reason: string;
+  nextAction: string;
+  retryable: boolean;
+};
 
 const MODEL_ID = "gemma4:e2b-it-qat";
 const APP_NAME = "ClawBoot";
@@ -116,6 +124,7 @@ export default function Home() {
   const [download, setDownload] = useState<DownloadState | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<FailureDiagnosis | null>(null);
   const [benchmark, setBenchmark] = useState<{ speed: string; firstToken: string } | null>(null);
   const [benchmarking, setBenchmarking] = useState(false);
   const [channels, setChannels] = useState<ChannelState>(EMPTY_CHANNELS);
@@ -147,6 +156,11 @@ export default function Home() {
     const message = event.message ? String(event.message) : "";
     const progress = Number(event.progress ?? NaN);
     if (message && type === "log") setLogs((current) => [...current.slice(-199), message]);
+    if (type === "diagnostic") {
+      if (message) setLogs((current) => [...current.slice(-199), message]);
+      if (event.diagnosis && typeof event.diagnosis === "object") setDiagnosis(event.diagnosis as FailureDiagnosis);
+      setDetailsOpen(true);
+    }
     if (Number.isFinite(progress)) setInstallProgress(Math.max(0, Math.min(100, progress)));
     if (type === "download") {
       const percent = Math.max(0, Math.min(100, Number(event.percent ?? 0)));
@@ -230,6 +244,7 @@ export default function Home() {
         setInstallProgress(Number(lastJob.progress ?? 0));
         setInstallSteps(lastJob.steps ? mapJobSteps(lastJob.steps) : DEFAULT_INSTALL_STEPS);
         setError(String(lastJob.error ?? "Installation stopped. Completed work has been preserved."));
+        setDiagnosis(lastJob.diagnosis && typeof lastJob.diagnosis === "object" ? lastJob.diagnosis as FailureDiagnosis : null);
         goTo(4);
       } else if (lastJob?.status === "complete" || installation?.gatewayRunning === true) {
         setInstallState("complete");
@@ -258,7 +273,7 @@ export default function Home() {
   const blockingChecks = useMemo(() => checks.filter((item) => item.status === "fail").length, [checks]);
 
   const startInstall = useCallback(async () => {
-    setError(null); setInstallState("running"); setInstallProgress(0); setInstallSteps(DEFAULT_INSTALL_STEPS); setDownload(null); setLogs([]); goTo(4);
+    setError(null); setDiagnosis(null); setDetailsOpen(false); setInstallState("running"); setInstallProgress(0); setInstallSteps(DEFAULT_INSTALL_STEPS); setDownload(null); setLogs([]); goTo(4);
     try {
       const response = await fetch("/api/v1/install", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ riskAccepted, permissionProfile: permission, model: MODEL_ID }) });
       const payload = await response.json() as Record<string, unknown>;
@@ -342,7 +357,7 @@ export default function Home() {
             const available = index <= highestStep || index <= step || installState === "complete";
             return <button key={label} className={index === step ? "is-active" : ""} disabled={!available || index === 4 && installState === "running"} onClick={() => available && goTo(index)} aria-current={index === step ? "step" : undefined}>{label}{index < step && <span aria-label="complete">✓</span>}</button>;
           })}</nav>
-          <div className="rail-version">{APP_NAME}<br />Version 1.0.6</div>
+          <div className="rail-version">{APP_NAME}<br />Version 1.0.7</div>
         </aside>
 
         <section className="step-content" aria-live="polite">
@@ -358,7 +373,7 @@ export default function Home() {
 
           {step === 3 && <div className="page"><header><h1>Review setup</h1><p>Confirm the settings below, then let ClawBoot prepare the Pi.</p></header><div className="review-table"><div><span>Runtime</span><strong>Ollama for Linux ARM64 (1.5 GB)</strong></div><div><span>Local model</span><strong>Gemma 4 E2B QAT (4.3 GB)</strong></div><div><span>Total download</span><strong>About 5.8 GB · resumable</strong></div><div><span>Agent</span><strong>OpenClaw, latest stable</strong></div><div><span>Access</span><strong>{PERMISSIONS.find((item) => item.id === permission)?.title}</strong></div><div><span>Web and browser tools</span><strong>Disabled for this small local model</strong></div><div><span>Cloud memory search</span><strong>Disabled</strong></div><div><span>Messaging</span><strong>Telegram or WhatsApp after installation</strong></div><div><span>Starts at boot</span><strong>Yes</strong></div></div><div className="message message--notice"><strong>No terminal or extra password prompt</strong><span>The desktop package has already installed a background service with a fixed allowlist of setup actions. It cannot run arbitrary commands.</span></div></div>}
 
-          {step === 4 && <div className="page install-page"><header><h1>{installState === "failed" ? "Installation stopped" : "Installing OpenClaw"}</h1><p>{installState === "failed" ? "Completed work and partial downloads have been preserved. You can retry safely." : "ClawBoot can be closed while installation continues. Interrupted downloads resume instead of restarting."}</p></header><div className="progress-heading"><strong>{installState === "failed" ? "ATTENTION REQUIRED" : "INSTALLING"}</strong><span>{Math.round(installProgress)}%</span></div><div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installProgress)}><span style={{ width: `${installProgress}%` }} /></div>{download && <div className={`download-progress ${download.paused ? "is-paused" : ""}`}><div><strong>{download.label}</strong><span>{Math.round(download.percent)}%</span></div><div className="download-track" role="progressbar" aria-label={`${download.label} download`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(download.percent)}><span style={{ width: `${download.percent}%` }} /></div><small>{download.downloadedBytes != null && download.totalBytes != null ? `${formatTransferBytes(download.downloadedBytes)} of ${formatTransferBytes(download.totalBytes)}` : `${Math.round(download.percent)}% downloaded`} · {download.paused ? "Saved — Retry continues from here." : "Safe to close — progress is saved."}</small></div>}{error && <div className="message message--error"><strong>Installation did not finish</strong><span>{error}</span></div>}<div className="task-list">{installSteps.map((item) => <div key={item.id}><span className="task-mark">{item.status === "complete" ? "✓" : item.status === "running" ? ">" : item.status === "failed" ? "×" : ""}</span><span>{item.label}</span><StatusMark status={item.status} /></div>)}</div><button className="details-button" onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? "HIDE" : "SHOW"} TECHNICAL DETAILS</button>{detailsOpen && <pre className="log-view">{logs.length ? logs.join("\n") : "Waiting for installer output..."}</pre>}</div>}
+          {step === 4 && <div className="page install-page"><header><h1>{installState === "failed" ? "Installation stopped" : "Installing OpenClaw"}</h1><p>{installState === "failed" ? "Completed work and partial downloads have been preserved. You can retry safely." : "ClawBoot can be closed while installation continues. Interrupted downloads resume instead of restarting."}</p></header><div className="progress-heading"><strong>{installState === "failed" ? "ATTENTION REQUIRED" : "INSTALLING"}</strong><span>{Math.round(installProgress)}%</span></div><div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installProgress)}><span style={{ width: `${installProgress}%` }} /></div>{download && <div className={`download-progress ${download.paused ? "is-paused" : ""}`}><div><strong>{download.label}</strong><span>{Math.round(download.percent)}%</span></div><div className="download-track" role="progressbar" aria-label={`${download.label} download`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(download.percent)}><span style={{ width: `${download.percent}%` }} /></div><small>{download.downloadedBytes != null && download.totalBytes != null ? `${formatTransferBytes(download.downloadedBytes)} of ${formatTransferBytes(download.totalBytes)}` : `${Math.round(download.percent)}% downloaded`} · {download.paused ? "Saved — Retry continues from here." : "Safe to close — progress is saved."}</small></div>}{error && <div className="message message--error"><strong>Installation did not finish</strong><span>{error}</span></div>}<div className="task-list">{installSteps.map((item) => <div key={item.id}><span className="task-mark">{item.status === "complete" ? "✓" : item.status === "running" ? ">" : item.status === "failed" ? "×" : ""}</span><span>{item.label}</span><StatusMark status={item.status} /></div>)}</div><button className="details-button" onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? "HIDE" : "SHOW"} TECHNICAL DETAILS</button>{detailsOpen && <>{diagnosis && <div className="failure-diagnosis"><strong>FAILURE DIAGNOSIS</strong><dl><div><dt>Failed step</dt><dd>{diagnosis.step}</dd></div><div><dt>Problem</dt><dd>{diagnosis.problem}</dd></div><div><dt>Why</dt><dd>{diagnosis.reason}</dd></div><div><dt>What to do</dt><dd>{diagnosis.nextAction}</dd></div><div><dt>Error code</dt><dd><code>{diagnosis.code}</code></dd></div></dl></div>}<pre className="log-view">{logs.length ? logs.join("\n") : "Waiting for installer output..."}</pre></>}</div>}
 
           {step === 5 && <div className="page messaging-page">
             {channelPanel === "list" && <><header><h1>Connect your agent</h1><p>Choose where you want to message it. You can set up both or skip this for now.</p></header><div className="channel-list"><button onClick={() => openChannel("telegram")}><span className="channel-icon">TG</span><span className="row-copy"><strong>Telegram</strong><small>Create a bot with BotFather, paste its token, then approve your account.</small></span><ChannelBadge status={channels.telegram.status} /><span className="chevron">›</span></button><button onClick={() => openChannel("whatsapp")}><span className="channel-icon">WA</span><span className="row-copy"><strong>WhatsApp</strong><small>Link a WhatsApp account by scanning a QR code, then approve your number.</small></span><ChannelBadge status={channels.whatsapp.status} /><span className="chevron">›</span></button></div><div className="message message--notice"><strong>Safe defaults are applied</strong><span>Unknown people must request pairing, groups are disabled, and you approve each account from ClawBoot.</span></div></>}

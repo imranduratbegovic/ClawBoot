@@ -182,6 +182,74 @@ function friendlyError(error) {
   return sanitize(error?.message ?? "Setup failed unexpectedly.").slice(0, 2_000);
 }
 
+export function diagnoseSetupFailure(error, step = null) {
+  const technical = friendlyError(error);
+  const lower = technical.toLowerCase();
+  const stepTitle = String(step?.title ?? step?.id ?? "Setup");
+  const diagnosis = {
+    code: "SETUP_COMMAND_FAILED",
+    step: stepTitle,
+    problem: "A required setup command did not finish.",
+    reason: technical,
+    nextAction: "Check the details below, then press Retry. Completed work is preserved.",
+    retryable: true,
+  };
+
+  if (/http\s+5\d\d|returned\s+5\d\d|status(?: code)?\s*5\d\d/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "REMOTE_SERVER_ERROR",
+      problem: "A remote download or package server returned an HTTP 5xx error.",
+      reason: `${technical} This is a server-side response, not damage to the Raspberry Pi or the saved local model.`,
+      nextAction: "Wait a few minutes and press Retry. ClawBoot will reuse completed work and saved downloads.",
+    };
+  }
+  if (/enospc|no space left|disk.+full/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "DISK_FULL",
+      problem: "The Raspberry Pi ran out of free storage.",
+      nextAction: "Free some disk space, reopen ClawBoot, and press Retry.",
+    };
+  }
+  if (/eai_again|enotfound|could not resolve|connection reset|network is unreachable|timed? out/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "NETWORK_ERROR",
+      problem: "The network connection or remote server became unavailable.",
+      nextAction: "Check the Pi's internet connection, then press Retry. Saved downloads will resume.",
+    };
+  }
+  if (/eacces|permission denied|operation not permitted/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "PERMISSION_ERROR",
+      problem: "A required file or service could not be changed because access was denied.",
+      nextAction: "Reinstall the latest ClawBoot package, reopen it, and press Retry.",
+    };
+  }
+  if (error?.code === "COMMAND_TIMEOUT") {
+    return {
+      ...diagnosis,
+      code: "COMMAND_TIMEOUT",
+      problem: "A setup operation took too long and was stopped.",
+      nextAction: "Check the network connection and press Retry. Completed work is preserved.",
+    };
+  }
+  return diagnosis;
+}
+
+function diagnosisText(diagnosis) {
+  return [
+    "FAILURE DIAGNOSIS",
+    `Step: ${diagnosis.step}`,
+    `Problem: ${diagnosis.problem}`,
+    `Reason: ${diagnosis.reason}`,
+    `What to do: ${diagnosis.nextAction}`,
+    `Code: ${diagnosis.code}`,
+  ].join("\n");
+}
+
 export function parseDownloadProgress(line) {
   const match = /^CLAWBOOT_DOWNLOAD\s+(ollama)\s+(\d+)\s+(\d+)$/.exec(String(line).trim());
   if (!match) return null;
@@ -896,11 +964,15 @@ export async function createSetupService(options = {}) {
     } catch (error) {
       const cancelled = controller.signal.aborted || error instanceof CommandCancelledError;
       const message = cancelled ? "Setup was cancelled. You can safely resume later." : friendlyError(error);
+      const currentJob = store.snapshot().jobs[jobId];
+      const failedStep = currentJob?.steps?.find((step) => step.status === "running") ?? null;
+      const diagnosis = cancelled ? null : diagnoseSetupFailure(error, failedStep);
       await store.update((state) => {
         const job = state.jobs[jobId];
         if (!job) return;
         job.status = cancelled ? "cancelled" : "failed";
         job.error = message;
+        job.diagnosis = diagnosis;
         job.finishedAt = new Date().toISOString();
         const runningStep = job.steps.find((step) => step.status === "running");
         if (runningStep) runningStep.status = cancelled ? "cancelled" : "failed";
@@ -908,6 +980,14 @@ export async function createSetupService(options = {}) {
         state.phase = cancelled ? "ready" : "failed";
         state.installation.lastJobId = jobId;
       });
+      if (diagnosis) {
+        await emit(jobId, {
+          type: "diagnostic",
+          source: "setup",
+          message: diagnosisText(diagnosis),
+          diagnosis,
+        });
+      }
       await emit(jobId, {
         type: "job",
         status: cancelled ? "cancelled" : "failed",
