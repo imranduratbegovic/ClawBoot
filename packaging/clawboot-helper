@@ -13,6 +13,11 @@ export DEBIAN_FRONTEND=noninteractive
 OLLAMA_VERSION="0.31.2"
 OLLAMA_ARCHIVE_URL="https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-arm64.tar.zst"
 OLLAMA_ARCHIVE_SHA256="07a0adfcf3ed48ff110e2a3bcec897ca4d3f77d6f817d6ff63e83debfd102a31"
+OLLAMA_ARCHIVE_BYTES=1556004266
+OLLAMA_CACHE_DIR=/var/cache/clawboot/downloads
+OLLAMA_ARCHIVE_PATH="$OLLAMA_CACHE_DIR/ollama-${OLLAMA_VERSION}-linux-arm64.tar.zst"
+OLLAMA_PART_PATH="$OLLAMA_ARCHIVE_PATH.part"
+CURL_PID=""
 
 require_pi_arm64() {
   ARCH="$(uname -m)"
@@ -98,26 +103,106 @@ write_ollama_service() {
   trap - EXIT HUP INT TERM
 }
 
+archive_is_valid() {
+  [ -f "$1" ] && echo "$OLLAMA_ARCHIVE_SHA256  $1" | sha256sum --check --status
+}
+
+archive_size() {
+  if [ -f "$1" ]; then
+    wc -c < "$1" | tr -d ' '
+  else
+    echo 0
+  fi
+}
+
+stop_ollama_download() {
+  if [ -n "$CURL_PID" ]; then
+    kill "$CURL_PID" >/dev/null 2>&1 || true
+    wait "$CURL_PID" >/dev/null 2>&1 || true
+  fi
+  echo "Ollama download paused. The partial download was saved; Retry will continue it." >&2
+  exit 130
+}
+
+download_ollama_archive() {
+  install -d -o root -g root -m 0755 "$OLLAMA_CACHE_DIR"
+
+  if archive_is_valid "$OLLAMA_ARCHIVE_PATH"; then
+    echo "CLAWBOOT_DOWNLOAD ollama $OLLAMA_ARCHIVE_BYTES $OLLAMA_ARCHIVE_BYTES"
+    echo "Using the verified cached Ollama $OLLAMA_VERSION archive."
+    return 0
+  fi
+  rm -f "$OLLAMA_ARCHIVE_PATH"
+
+  PART_BYTES="$(archive_size "$OLLAMA_PART_PATH")"
+  if [ "$PART_BYTES" -ge "$OLLAMA_ARCHIVE_BYTES" ]; then
+    if archive_is_valid "$OLLAMA_PART_PATH"; then
+      mv -f "$OLLAMA_PART_PATH" "$OLLAMA_ARCHIVE_PATH"
+      echo "CLAWBOOT_DOWNLOAD ollama $OLLAMA_ARCHIVE_BYTES $OLLAMA_ARCHIVE_BYTES"
+      echo "Recovered the completed Ollama download from the previous attempt."
+      return 0
+    fi
+    echo "Discarding an invalid completed Ollama download before retrying." >&2
+    rm -f "$OLLAMA_PART_PATH"
+    PART_BYTES=0
+  fi
+
+  if [ "$PART_BYTES" -gt 0 ]; then
+    echo "Resuming the Ollama download from byte $PART_BYTES of $OLLAMA_ARCHIVE_BYTES."
+  else
+    echo "Downloading the official Ollama Linux arm64 archive (1.48 GB)."
+  fi
+  echo "CLAWBOOT_DOWNLOAD ollama $PART_BYTES $OLLAMA_ARCHIVE_BYTES"
+
+  trap stop_ollama_download HUP INT TERM
+  curl --fail --silent --show-error --location --http1.1 \
+    --proto '=https' --tlsv1.2 --connect-timeout 20 \
+    --retry 10 --retry-delay 3 --retry-all-errors --retry-connrefused \
+    --speed-limit 1024 --speed-time 120 --continue-at - \
+    --output "$OLLAMA_PART_PATH" \
+    "$OLLAMA_ARCHIVE_URL" &
+  CURL_PID=$!
+
+  while kill -0 "$CURL_PID" >/dev/null 2>&1; do
+    echo "CLAWBOOT_DOWNLOAD ollama $(archive_size "$OLLAMA_PART_PATH") $OLLAMA_ARCHIVE_BYTES"
+    sleep 5
+  done
+
+  if wait "$CURL_PID"; then
+    CURL_STATUS=0
+  else
+    CURL_STATUS=$?
+  fi
+  CURL_PID=""
+  trap - HUP INT TERM
+  echo "CLAWBOOT_DOWNLOAD ollama $(archive_size "$OLLAMA_PART_PATH") $OLLAMA_ARCHIVE_BYTES"
+
+  if [ "$CURL_STATUS" -ne 0 ]; then
+    echo "The Ollama download was interrupted. Its partial file was saved; press Retry to resume." >&2
+    return 75
+  fi
+  if ! archive_is_valid "$OLLAMA_PART_PATH"; then
+    echo "The completed Ollama download failed verification and will restart on Retry." >&2
+    rm -f "$OLLAMA_PART_PATH"
+    return 74
+  fi
+
+  mv -f "$OLLAMA_PART_PATH" "$OLLAMA_ARCHIVE_PATH"
+  echo "CLAWBOOT_DOWNLOAD ollama $OLLAMA_ARCHIVE_BYTES $OLLAMA_ARCHIVE_BYTES"
+  echo "Verified Ollama $OLLAMA_VERSION archive."
+}
+
 install_ollama_arm64() {
   require_pi_arm64
   prepare_system
 
-  ARCHIVE="$(mktemp --suffix=.tar.zst)"
-  trap 'rm -f "$ARCHIVE"' EXIT HUP INT TERM
-  echo "Downloading the official Ollama Linux arm64 archive."
-  curl --fail --show-error --location --proto '=https' --tlsv1.2 \
-    --connect-timeout 20 --retry 5 --retry-delay 3 --retry-all-errors \
-    --output "$ARCHIVE" \
-    "$OLLAMA_ARCHIVE_URL"
-  echo "$OLLAMA_ARCHIVE_SHA256  $ARCHIVE" | sha256sum --check --status
-  echo "Verified Ollama $OLLAMA_VERSION archive."
+  download_ollama_archive
   echo "Installing Ollama into /usr."
-  zstd --decompress --stdout "$ARCHIVE" | tar -xf - -C /usr
-  rm -f "$ARCHIVE"
-  trap - EXIT HUP INT TERM
+  zstd --decompress --stdout "$OLLAMA_ARCHIVE_PATH" | tar -xf - -C /usr
 
   test -x /usr/bin/ollama
   write_ollama_service
+  rm -f "$OLLAMA_ARCHIVE_PATH"
   echo "Ollama arm64 installed."
 }
 

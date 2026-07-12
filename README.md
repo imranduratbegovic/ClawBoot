@@ -23,6 +23,8 @@ The interface follows the same basic pattern as Raspberry Pi Imager: one dedicat
 
 Installation is resumable. Closing the window does not stop an active download or installation, and reopening the app reconnects to the current job.
 
+The first setup downloads approximately 5.8 GB: about 1.5 GB for the official Ollama ARM64 runtime and 4.3 GB for the Gemma model. Runtime downloads use HTTP/1.1 byte ranges and a persistent cache under `/var/cache/clawboot/downloads`; a dropped connection, cancellation, or Retry continues from the saved byte instead of restarting the archive.
+
 ## Requirements
 
 - Raspberry Pi 5
@@ -72,7 +74,7 @@ npm run dev
 Build the graphical ARM64 desktop package after `npm run build`:
 
 ```bash
-python3 scripts/build-deb.py --output clawboot_1.0.1_arm64.deb
+python3 scripts/build-deb.py --output clawboot_1.0.2_arm64.deb
 ```
 
 The package builder downloads the official Node.js Linux ARM64 archive and refuses to package it unless its SHA-256 matches the pinned release checksum.

@@ -45,6 +45,21 @@ jobs:
             packaging/debian/postrm \
             scripts/install.sh
 
+      - name: Verify Ollama download resume support
+        run: |
+          ollama_version="$(sed -n 's/^OLLAMA_VERSION="\([^"]*\)"/\1/p' packaging/clawboot-helper)"
+          ollama_bytes="$(sed -n 's/^OLLAMA_ARCHIVE_BYTES=\([0-9]*\)/\1/p' packaging/clawboot-helper)"
+          test -n "$ollama_version"
+          test -n "$ollama_bytes"
+          ollama_url="https://github.com/ollama/ollama/releases/download/v${ollama_version}/ollama-linux-arm64.tar.zst"
+          curl --fail --silent --show-error --location --http1.1 \
+            --range 1000000-1000999 --dump-header /tmp/ollama-range.headers \
+            --output /tmp/ollama-range.bin "$ollama_url"
+          test "$(wc -c < /tmp/ollama-range.bin)" -eq 1000
+          grep --ignore-case --fixed-strings \
+            "content-range: bytes 1000000-1000999/${ollama_bytes}" \
+            /tmp/ollama-range.headers
+
       - name: Build the release package from source
         run: python3 scripts/build-deb.py --output /tmp/clawboot-built-arm64.deb
 

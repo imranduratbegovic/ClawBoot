@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 test("Ollama service is loopback-only and capped for Raspberry Pi memory", async () => {
-  const helper = await fs.readFile(new URL("../../packaging/clawboot-helper", import.meta.url), "utf8");
+  const [helper, runner] = await Promise.all([
+    fs.readFile(new URL("../../packaging/clawboot-helper", import.meta.url), "utf8"),
+    fs.readFile(new URL("../../setupd/command-runner.mjs", import.meta.url), "utf8"),
+  ]);
   for (const setting of [
     "OLLAMA_HOST=127.0.0.1:11434",
     "OLLAMA_NO_CLOUD=1",
@@ -18,7 +21,14 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(helper, /github\.com\/ollama\/ollama\/releases\/download\/v\$\{OLLAMA_VERSION\}/);
   assert.match(helper, /OLLAMA_ARCHIVE_SHA256="07a0adfcf3ed48ff110e2a3bcec897ca4d3f77d6f817d6ff63e83debfd102a31"/);
   assert.match(helper, /sha256sum --check --status/);
-  assert.match(helper, /--retry 5 --retry-delay 3 --retry-all-errors/);
+  assert.match(helper, /OLLAMA_ARCHIVE_BYTES=1556004266/);
+  assert.match(helper, /OLLAMA_CACHE_DIR=\/var\/cache\/clawboot\/downloads/);
+  assert.match(helper, /--http1\.1/);
+  assert.match(helper, /--continue-at -/);
+  assert.match(helper, /--retry 10 --retry-delay 3 --retry-all-errors/);
+  assert.match(helper, /CLAWBOOT_DOWNLOAD ollama/);
+  assert.match(helper, /partial download was saved; Retry will continue/);
+  assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);
   assert.match(helper, /dpkg --configure -a/);
   assert.match(helper, /--fix-broken install -y/);
 });

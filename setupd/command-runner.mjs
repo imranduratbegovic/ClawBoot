@@ -69,7 +69,7 @@ async function actionSpec(action, config, context) {
         command: sudo,
         args: ["-n", helper, "install-ollama-arm64"],
         env,
-        timeoutMs: 30 * 60_000,
+        timeoutMs: 3 * 60 * 60_000,
       };
     case "configureOllamaLoopback":
       return {
@@ -394,7 +394,12 @@ export class CommandRunner {
         child.kill("SIGTERM");
         if (!settled) {
           settled = true;
-          reject(new Error(`Allowlisted action timed out: ${action}`));
+          killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+          killTimer.unref?.();
+          const error = new Error(`Allowlisted action timed out: ${action}`);
+          error.code = "COMMAND_TIMEOUT";
+          error.action = action;
+          reject(error);
         }
       }, spec.timeoutMs);
       timeout.unref?.();
@@ -432,6 +437,7 @@ export class CommandRunner {
           );
           error.code = "COMMAND_FAILED";
           error.exitCode = code;
+          error.action = action;
           reject(error);
           return;
         }
@@ -462,7 +468,14 @@ function wait(ms, signal) {
 
 const DEMO_LINES = {
   prepareSystem: ["Checking Raspberry Pi OS packages", "System prerequisites are ready"],
-  installOllamaArm64: ["Downloading Ollama for Linux arm64", "Ollama installed"],
+  installOllamaArm64: [
+    "Downloading Ollama for Linux arm64",
+    "CLAWBOOT_DOWNLOAD ollama 0 1556004266",
+    "CLAWBOOT_DOWNLOAD ollama 389001066 1556004266",
+    "CLAWBOOT_DOWNLOAD ollama 1058082890 1556004266",
+    "CLAWBOOT_DOWNLOAD ollama 1556004266 1556004266",
+    "Ollama installed",
+  ],
   configureOllamaLoopback: ["Ollama enabled on 127.0.0.1:11434"],
   ollamaVersion: ["ollama version 0.11.0"],
   pullModel: [

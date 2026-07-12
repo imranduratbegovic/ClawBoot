@@ -311,6 +311,16 @@ label:has(input:focus-visible) {
 .progress-track { background: #e4e4e4; border-radius: 3px; height: 18px; overflow: hidden; }
 .progress-track span { background: var(--red); display: block; height: 100%; transition: width 200ms linear; }
 
+.download-progress { background: #f7f7f7; border: 1px solid var(--line); margin-top: 12px; padding: 10px 12px; }
+.download-progress > div:first-child { align-items: center; display: flex; font-size: 11px; justify-content: space-between; }
+.download-progress > div:first-child strong { color: #222; }
+.download-progress > div:first-child span { color: var(--red); font-weight: 800; }
+.download-progress small { color: #555; display: block; font-size: 10px; margin-top: 7px; }
+.download-progress.is-paused { background: #fff8e8; border-color: #ca8820; }
+.download-track { background: #dedede; height: 8px; margin-top: 7px; overflow: hidden; }
+.download-track span { background: var(--red); display: block; height: 100%; transition: width 200ms linear; }
+.download-progress.is-paused .download-track span { background: #ca8820; }
+
 .task-list { border: 1px solid var(--line); margin-top: 20px; }
 .task-list > div { align-items: center; border-bottom: 1px solid var(--line); display: grid; font-size: 12px; gap: 10px; grid-template-columns: 24px 1fr auto; min-height: 38px; padding: 5px 11px; }
 .task-list > div:last-child { border-bottom: 0; }

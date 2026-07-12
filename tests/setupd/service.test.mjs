@@ -3,7 +3,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createSetupService } from "../../setupd/service.mjs";
+import { createSetupService, parseDownloadProgress } from "../../setupd/service.mjs";
+
+test("Ollama byte markers become bounded resumable download progress", () => {
+  assert.deepEqual(parseDownloadProgress("CLAWBOOT_DOWNLOAD ollama 778002133 1556004266"), {
+    kind: "ollama",
+    label: "Ollama runtime",
+    downloadedBytes: 778002133,
+    totalBytes: 1556004266,
+    percent: 50,
+  });
+  assert.equal(parseDownloadProgress("curl: (92) HTTP/2 stream error"), null);
+  assert.equal(parseDownloadProgress("CLAWBOOT_DOWNLOAD ollama nope 1556004266"), null);
+});
 
 async function demoService(t, delay = 1) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-service-"));

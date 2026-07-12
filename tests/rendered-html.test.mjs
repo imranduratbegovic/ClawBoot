@@ -38,6 +38,9 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(page, /api\/v1\/channels\/whatsapp\/login/);
   assert.match(page, /api\/v1\/channels\/pairings\/approve/);
   assert.match(page, /No terminal or extra password prompt/);
+  assert.match(page, /About 5\.8 GB total/);
+  assert.match(page, /Interrupted downloads resume instead of restarting/);
+  assert.match(page, /download-progress/);
   assert.doesNotMatch(page, /simulateInstall|Clawberry/);
   assert.match(css, /--red:\s*#bd1e3e/i);
   assert.match(packageJson, /"name": "clawboot"/);

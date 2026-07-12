@@ -171,8 +171,29 @@ function friendlyError(error) {
   if (error instanceof CommandCancelledError || error?.code === "SETUP_CANCELLED") {
     return "Setup was cancelled.";
   }
+  if (error?.action === "installOllamaArm64") {
+    if (error?.exitCode === 74) {
+      return "The Ollama runtime download was corrupted and removed. Check the connection, then press Retry to download a clean copy.";
+    }
+    return "The Ollama runtime download was interrupted. Its completed bytes were saved; check the connection and press Retry to continue instead of starting over.";
+  }
   const sanitize = createSanitizer();
   return sanitize(error?.message ?? "Setup failed unexpectedly.").slice(0, 2_000);
+}
+
+export function parseDownloadProgress(line) {
+  const match = /^CLAWBOOT_DOWNLOAD\s+(ollama)\s+(\d+)\s+(\d+)$/.exec(String(line).trim());
+  if (!match) return null;
+  const downloadedBytes = Number(match[2]);
+  const totalBytes = Number(match[3]);
+  if (!Number.isSafeInteger(downloadedBytes) || !Number.isSafeInteger(totalBytes) || totalBytes <= 0) return null;
+  return {
+    kind: match[1],
+    label: "Ollama runtime",
+    downloadedBytes: Math.max(0, Math.min(downloadedBytes, totalBytes)),
+    totalBytes,
+    percent: Math.max(0, Math.min(100, Math.floor((downloadedBytes / totalBytes) * 100))),
+  };
 }
 
 function parseCommandJson(output) {
@@ -276,10 +297,44 @@ export async function createSetupService(options = {}) {
     let lines = Promise.resolve();
     let lastProgressLogAt = 0;
     let pendingProgressLine = null;
+    let lastDownloadKey = null;
     const result = await runner.run(action, {
       ...context,
       onLine({ source, line }) {
+        const download = parseDownloadProgress(line);
+        if (download) {
+          const key = `${download.kind}:${download.percent}`;
+          if (key === lastDownloadKey) return;
+          lastDownloadKey = key;
+          lines = lines.then(() =>
+            emit(jobId, {
+              type: "download",
+              stepId: "ollama",
+              resumable: true,
+              ...download,
+            }),
+          );
+          return;
+        }
         if (action === "pullModel") {
+          const percentage = /(?:^|\s)(\d{1,3}(?:\.\d+)?)%/.exec(line);
+          if (percentage) {
+            const percent = Math.max(0, Math.min(100, Math.floor(Number(percentage[1]))));
+            const key = `model:${percent}`;
+            if (key !== lastDownloadKey) {
+              lastDownloadKey = key;
+              lines = lines.then(() =>
+                emit(jobId, {
+                  type: "download",
+                  stepId: "model",
+                  kind: "model",
+                  label: "Gemma 4 E2B model",
+                  percent,
+                  resumable: true,
+                }),
+              );
+            }
+          }
           const now = Date.now();
           if (now - lastProgressLogAt < 250) {
             pendingProgressLine = { source, line };
