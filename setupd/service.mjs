@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 2;
+const CURRENT_SECURITY_BASELINE = 3;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -772,7 +772,6 @@ export async function createSetupService(options = {}) {
         typeof gatewayToken === "string" && gatewayToken.length >= 24
           ? { signal, gatewayToken, secrets: [gatewayToken] }
           : { signal };
-      await runAction(jobId, "updateOpenClawStable", { signal });
       await runAction(jobId, "disableCloudMemorySearch", { signal });
       await runAction(jobId, "denySmallModelWebTools", { signal });
       await runAction(jobId, "disableElevatedTools", { signal });
@@ -783,6 +782,7 @@ export async function createSetupService(options = {}) {
       const security = await runAction(jobId, "openclawSecurityDeep", gatewayContext);
       const securityReport = parseCommandJson(security.stdout);
       const critical = Number(securityReport?.summary?.critical);
+      const warnings = Number(securityReport?.summary?.warn ?? 0);
       if (!Number.isFinite(critical)) {
         throw new Error("OpenClaw returned an unreadable security audit result.");
       }
@@ -792,7 +792,7 @@ export async function createSetupService(options = {}) {
       await emit(jobId, {
         type: "log",
         source: "setup",
-        message: "OpenClaw security audit passed with no critical findings.",
+        message: `OpenClaw security audit passed with no critical findings${warnings > 0 ? `; ${warnings} non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`,
       });
       const model = await verifyModel({ signal, exercise: true });
       if (!model.ok) throw new Error(model.reason ?? "The local model did not answer its health check.");

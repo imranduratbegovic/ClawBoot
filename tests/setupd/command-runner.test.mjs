@@ -61,7 +61,6 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
 
   await runner.run("pullModel");
   await runner.run("installOpenClaw");
-  await runner.run("updateOpenClawStable");
   await runner.run("openclawDoctorFix");
   await runner.run("openclawSecurityFix");
   await runner.run("openclawSecurityDeep");
@@ -73,15 +72,14 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
 
   assert.deepEqual(calls[0].args, ["pull", "gemma4:e2b-it-qat"]);
   assert.deepEqual(calls[1].args.slice(-3), ["--no-prompt", "--no-onboard", "--verify"]);
-  assert.deepEqual(calls[2].args, ["update", "--channel", "stable", "--yes", "--json", "--timeout", "1800"]);
-  assert.deepEqual(calls[3].args, ["doctor", "--fix", "--non-interactive"]);
-  assert.deepEqual(calls[4].args, ["security", "audit", "--fix", "--json"]);
-  assert.deepEqual(calls[5].args, ["security", "audit", "--deep", "--json"]);
-  assert.deepEqual(calls[6].args, ["gateway", "status", "--require-rpc", "--json"]);
-  assert.deepEqual(calls[7].args, ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"]);
-  assert.deepEqual(calls[8].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
-  assert.deepEqual(calls[9].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
-  assert.deepEqual(calls[10].args, ["config", "validate", "--json"]);
+  assert.deepEqual(calls[2].args, ["doctor", "--fix", "--non-interactive"]);
+  assert.deepEqual(calls[3].args, ["security", "audit", "--fix", "--json"]);
+  assert.deepEqual(calls[4].args, ["security", "audit", "--deep", "--json"]);
+  assert.deepEqual(calls[5].args, ["gateway", "status", "--require-rpc", "--json"]);
+  assert.deepEqual(calls[6].args, ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[7].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
+  assert.deepEqual(calls[8].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[9].args, ["config", "validate", "--json"]);
   assert.equal(calls.every((call) => call.options.shell === false), true);
 });
 
