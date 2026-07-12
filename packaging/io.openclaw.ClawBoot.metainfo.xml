@@ -3,11 +3,11 @@
   <id>io.openclaw.ClawBoot</id>
   <name>ClawBoot</name>
   <developer_name>Imran Duratbegovic</developer_name>
-  <summary>Set up OpenClaw and a local Gemma model on Raspberry Pi 5</summary>
+  <summary>Set up OpenClaw and a local Qwen model on Raspberry Pi 5</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
-    <p>A simple setup wizard for installing Ollama, Gemma 4 E2B, OpenClaw, Telegram, and WhatsApp without using the command line.</p>
+    <p>A simple setup wizard for installing Ollama, Qwen 3.5 2B, OpenClaw, Telegram, and WhatsApp without using the command line.</p>
   </description>
   <launchable type="desktop-id">io.openclaw.ClawBoot.desktop</launchable>
   <provides><binary>clawboot</binary></provides>

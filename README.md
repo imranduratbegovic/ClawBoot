@@ -1,6 +1,6 @@
 # ClawBoot
 
-An open-source Raspberry Pi OS application that installs and configures OpenClaw with a fully local Gemma 4 E2B model. The goal is simple: replace the command-line setup with a short, reliable wizard.
+An open-source Raspberry Pi OS application that installs and configures OpenClaw with a fully local Qwen 3.5 2B model. The goal is simple: replace the command-line setup with a short, reliable wizard.
 
 ## Download
 
@@ -14,7 +14,7 @@ The interface follows the same basic pattern as Raspberry Pi Imager: one dedicat
 
 1. Checks for a Raspberry Pi 5, 64-bit OS, enough RAM, storage, and internet access.
 2. Installs the ARM64 Ollama runtime.
-3. Downloads `gemma4:e2b-it-qat`, the 4.3 GB Gemma 4 E2B QAT model.
+3. Downloads `qwen3.5:2b`, the 2.7 GB Qwen 3.5 2B model.
 4. Installs OpenClaw and configures its native Ollama provider.
 5. Applies a selected access profile and loopback-only networking.
 6. Starts both services and runs model, gateway, doctor, and security checks.
@@ -23,13 +23,13 @@ The interface follows the same basic pattern as Raspberry Pi Imager: one dedicat
 
 Installation is resumable. Closing the window does not stop an active download or installation, and reopening the app reconnects to the current job.
 
-The first setup downloads approximately 5.8 GB: about 1.5 GB for the official Ollama ARM64 runtime and 4.3 GB for the Gemma model. Runtime downloads use HTTP/1.1 byte ranges and a persistent cache under `/var/cache/clawboot/downloads`; a dropped connection, cancellation, or Retry continues from the saved byte instead of restarting the archive.
+The first setup downloads approximately 4.2 GB: about 1.5 GB for the official Ollama ARM64 runtime and 2.7 GB for the Qwen model. Runtime downloads use HTTP/1.1 byte ranges and a persistent cache under `/var/cache/clawboot/downloads`; a dropped connection, cancellation, or Retry continues from the saved byte instead of restarting the archive.
 
 ## Requirements
 
 - Raspberry Pi 5
 - 64-bit Raspberry Pi OS Bookworm or newer
-- 16 GB RAM recommended; 8 GB is supported but experimental and slower
+- 8 GB RAM or more
 - At least 12 GB of free storage; an SSD or NVMe drive is recommended
 - Internet access during installation
 
@@ -74,7 +74,7 @@ npm run dev
 Build the graphical ARM64 desktop package after `npm run build`:
 
 ```bash
-python3 scripts/build-deb.py --output clawboot_1.0.10_arm64.deb
+python3 scripts/build-deb.py --output clawboot_1.1.0_arm64.deb
 ```
 
 The package builder downloads the official Node.js Linux ARM64 archive and refuses to package it unless its SHA-256 matches the pinned release checksum.
@@ -117,6 +117,6 @@ OpenClaw gives models access to tools, so a small local model should still be tr
 - [OpenClaw Telegram](https://docs.openclaw.ai/providers/telegram)
 - [OpenClaw WhatsApp](https://docs.openclaw.ai/providers/whatsapp)
 - [Ollama on Linux](https://docs.ollama.com/linux)
-- [Gemma 4 model tags](https://ollama.com/library/gemma4/tags)
+- [Qwen 3.5 2B model](https://ollama.com/library/qwen3.5:2b)
 
-This independent project is not affiliated with Raspberry Pi Ltd., Google, Ollama, or the OpenClaw Foundation. Their names and marks belong to their respective owners.
+This independent project is not affiliated with Raspberry Pi Ltd., Alibaba, Ollama, or the OpenClaw Foundation. Their names and marks belong to their respective owners.

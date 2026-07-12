@@ -3,10 +3,11 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 test("Ollama service is loopback-only and capped for Raspberry Pi memory", async () => {
-  const [helper, runner, sudoers] = await Promise.all([
+  const [helper, runner, sudoers, service] = await Promise.all([
     fs.readFile(new URL("../../packaging/clawboot-helper", import.meta.url), "utf8"),
     fs.readFile(new URL("../../setupd/command-runner.mjs", import.meta.url), "utf8"),
     fs.readFile(new URL("../../packaging/clawboot.sudoers", import.meta.url), "utf8"),
+    fs.readFile(new URL("../../setupd/service.mjs", import.meta.url), "utf8"),
   ]);
   for (const setting of [
     "OLLAMA_HOST=127.0.0.1:11434",
@@ -38,6 +39,8 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
     assert.match(sudoers, new RegExp(`^openclaw ALL=\\(root\\) NOPASSWD: /usr/local/libexec/clawboot-helper ${action}$`, "m"));
   }
   assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);
+  assert.match(service, /async verify\(\{ jobId, signal \}\)[\s\S]*runAction\(jobId, "ensureOllamaRuntime"[\s\S]*runAction\(jobId, "configureOllamaLoopback"/);
+  assert.match(service, /runner\.run\("ollamaRuntimeStatus"[\s\S]*ollamaInstalled = false/);
   assert.match(helper, /dpkg --configure -a/);
   assert.match(helper, /--fix-broken install -y/);
 });

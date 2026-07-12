@@ -142,6 +142,13 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 20_000,
       };
+    case "ollamaRuntimeStatus":
+      return {
+        command: "/usr/bin/test",
+        args: ["-x", "/usr/lib/ollama/llama-server"],
+        env,
+        timeoutMs: 20_000,
+      };
     case "onboardOpenClaw": {
       if (typeof context.gatewayToken !== "string" || context.gatewayToken.length < 24) {
         throw new Error("A generated gateway token is required for onboarding.");
@@ -202,6 +209,13 @@ async function actionSpec(action, config, context) {
       return {
         command: await openclawExecutable(config),
         args: ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "configurePrimaryModel":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "agents.defaults.model.primary", JSON.stringify(`ollama/${MODEL_ID}`), "--strict-json"],
         env,
         timeoutMs: 30_000,
       };
@@ -541,6 +555,7 @@ const DEMO_LINES = {
   configureOllamaLoopback: ["Ollama enabled on 127.0.0.1:11434"],
   restartOllama: ["Ollama restarted and is ready on 127.0.0.1:11434"],
   ollamaVersion: ["ollama version 0.11.0"],
+  ollamaRuntimeStatus: ["Ollama llama-server runtime is present"],
   pullModel: [
     `pulling manifest for ${MODEL_ID}`,
     "downloading model layers 24%",
@@ -560,6 +575,7 @@ const DEMO_LINES = {
   ],
   openclawGatewayStatus: ['{"service":{"running":true},"rpc":{"ok":true}}'],
   disableCloudMemorySearch: ["Disabled cloud-backed memory search"],
+  configurePrimaryModel: [`Selected ollama/${MODEL_ID} as the primary model`],
   denySmallModelWebTools: ["Denied web and browser tools for the local small model"],
   disableElevatedTools: ["Disabled elevated tools"],
   validateOpenClawConfig: ['{"valid":true}'],

@@ -3,7 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { MODEL_ID } from "../../setupd/config.mjs";
 import { createSetupService, diagnoseSetupFailure, parseDownloadProgress } from "../../setupd/service.mjs";
+import { initialState } from "../../setupd/state.mjs";
 
 test("setup failures become plain-language technical diagnoses", () => {
   const server = diagnoseSetupFailure(new Error("https://registry.npmjs.org/openclaw returned HTTP 500."), { title: "Install OpenClaw" });
@@ -77,7 +79,7 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   const preflight = await preflightResponse.json();
   assert.equal(preflight.demo, true);
   assert.equal(preflight.canInstall, true);
-  assert.equal(preflight.model, "gemma4:e2b-it-qat");
+  assert.equal(preflight.model, "qwen3.5:2b");
 
   const firstResponse = await post(`${base}/api/v1/install`);
   assert.equal(firstResponse.status, 202);
@@ -98,14 +100,14 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   assert.doesNotMatch(events, /^event:/m);
   assert.match(events, /"type":"step"/);
   assert.match(events, /"status":"complete"/);
-  assert.match(events, /gemma4:e2b-it-qat/);
+  assert.match(events, /qwen3\.5:2b/);
   assert.match(events, /security audit passed with no critical findings/);
 
   const statusResponse = await fetch(`${base}/api/v1/status`);
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
-  assert.equal(status.installation.securityBaseline, 5);
+  assert.equal(status.installation.securityBaseline, 7);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);
@@ -126,6 +128,116 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   assert.match(logs, /ClawBoot logs/);
   assert.match(logs, /Demo complete/);
   assert.doesNotMatch(logs, /gatewayToken/);
+});
+
+test("retry repairs a missing Ollama runtime even when the v1.0.10 Ollama step was persisted as complete", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "clawboot-v1.0.10-retry-"));
+  const stateFile = path.join(directory, "state.json");
+  const persisted = initialState("pi");
+  persisted.installation = {
+    ...persisted.installation,
+    completedSteps: ["preflight", "system", "ollama", "model", "openclaw", "onboard"],
+    ollamaInstalled: true,
+    modelInstalled: true,
+    openclawInstalled: true,
+    agentConfigured: true,
+    gatewayRunning: true,
+    securityBaseline: 5,
+  };
+  persisted.secrets.gatewayToken = "persisted-gateway-token-for-retry-test";
+  await fs.writeFile(stateFile, `${JSON.stringify(persisted, null, 2)}\n`);
+
+  const trace = [];
+  const runner = {
+    async prepare() {},
+    async run(action, context = {}) {
+      trace.push(action);
+      if (action === "ollamaRuntimeStatus") {
+        throw new Error("/usr/lib/ollama/llama-server is missing");
+      }
+      const stdout = action === "openclawSecurityDeep"
+        ? '{"summary":{"critical":0,"warn":0,"info":0}}'
+        : "ok";
+      context.onLine?.({ source: "stdout", line: stdout });
+      return { code: 0, stdout, stderr: "" };
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "http://127.0.0.1:11434/api/tags") {
+      return new Response(JSON.stringify({ models: [{ name: MODEL_ID }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url === "http://127.0.0.1:11434/api/generate") {
+      trace.push("apiGenerate");
+      return new Response(JSON.stringify({
+        response: "READY",
+        eval_count: 1,
+        eval_duration: 1_000_000_000,
+        total_duration: 2_000_000_000,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return originalFetch(input, init);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const service = await createSetupService({
+    mode: "pi",
+    hostInfo: {
+      platform: "linux",
+      architecture: "arm64",
+      deviceModel: "Raspberry Pi 5 Model B",
+      pi5: true,
+      arm64: true,
+      os: { PRETTY_NAME: "Raspberry Pi OS" },
+      memoryBytes: 8 * 1024 ** 3,
+      freeDiskBytes: 20 * 1024 ** 3,
+      checks: [],
+      compatible: true,
+    },
+    config: { stateDir: directory, stateFile, home: directory, host: "127.0.0.1" },
+    runner,
+    persist: true,
+  });
+  await service.listen(0, "127.0.0.1");
+  t.after(async () => {
+    await service.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  const { port } = service.server.address();
+  const retryResponse = await post(`http://127.0.0.1:${port}/api/v1/install`, {
+    permissionProfile: "guarded",
+    riskAccepted: false,
+  });
+  assert.equal(retryResponse.status, 202);
+  const retry = await retryResponse.json();
+  let completed;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    completed = service.store.snapshot().jobs[retry.jobId];
+    const finalEventWritten = completed.events?.some(
+      (event) => event.type === "job" && event.status === "complete",
+    );
+    if (finalEventWritten || ["failed", "cancelled"].includes(completed.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  assert.equal(completed.status, "complete", completed.error);
+  const runtimeCheck = trace.indexOf("ollamaRuntimeStatus");
+  const runtimeRepair = trace.indexOf("ensureOllamaRuntime");
+  const finalInference = trace.indexOf("apiGenerate");
+  assert.ok(runtimeCheck >= 0, `Expected a runtime check in: ${trace.join(", ")}`);
+  assert.ok(runtimeRepair > runtimeCheck, `Expected repair after the failed runtime check in: ${trace.join(", ")}`);
+  assert.ok(finalInference > runtimeRepair, `Expected repair before final inference in: ${trace.join(", ")}`);
 });
 
 test("an active demo job can be cancelled and resumed with a new job", async (t) => {

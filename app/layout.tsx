@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("http://localhost:3210"),
   title: "ClawBoot",
   description:
-    "A simple Raspberry Pi setup wizard for OpenClaw and a local Gemma 4 E2B model.",
+    "A simple Raspberry Pi setup wizard for OpenClaw and a local Qwen 3.5 2B model.",
   applicationName: "ClawBoot",
   robots: { index: false, follow: false },
 };

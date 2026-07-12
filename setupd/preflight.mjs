@@ -97,10 +97,10 @@ export async function inspectHost({ stateDir, skipNetwork = false } = {}) {
       "Memory",
       memoryBytes >= 7 * GIB ? (memoryBytes >= 14 * GIB ? "pass" : "warn") : "fail",
       memoryBytes >= 14 * GIB
-        ? "Enough memory for the recommended Pi 5 16 GB experience."
+        ? "Plenty of memory for the local model and OpenClaw."
         : memoryBytes >= 7 * GIB
-          ? "8 GB can run the quantized model, but responses will be slow and memory headroom is limited."
-          : "At least 8 GB RAM is required; a 16 GB Pi is recommended.",
+          ? "8 GB is enough for the selected 2B model and OpenClaw."
+          : "At least 8 GB RAM is required for the supported local setup.",
       memoryBytes,
     ),
     check(
@@ -110,7 +110,7 @@ export async function inspectHost({ stateDir, skipNetwork = false } = {}) {
       freeDiskBytes == null
         ? "Free storage could not be measured."
         : freeDiskBytes >= 12 * GIB
-          ? "At least 12 GB is available for Ollama, Gemma, OpenClaw, and working data."
+          ? "At least 12 GB is available for Ollama, Qwen, OpenClaw, and working data."
           : "At least 12 GB of free storage is required; an SSD is strongly recommended.",
       freeDiskBytes,
     ),

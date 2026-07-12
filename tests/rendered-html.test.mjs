@@ -30,7 +30,7 @@ test("wires the wizard to the real resumable setup service", async () => {
     readFile(new URL("../packaging/io.openclaw.ClawBoot.desktop", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /gemma4:e2b-it-qat/);
+  assert.match(page, /qwen3\.5:2b/);
   assert.match(page, /api\/v1\/status/);
   assert.match(page, /activeJobId/);
   assert.match(page, /new EventSource/);
@@ -38,7 +38,7 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(page, /api\/v1\/channels\/whatsapp\/login/);
   assert.match(page, /api\/v1\/channels\/pairings\/approve/);
   assert.match(page, /No terminal or extra password prompt/);
-  assert.match(page, /About 5\.8 GB total/);
+  assert.match(page, /About 4\.2 GB total/);
   assert.match(page, /Interrupted downloads resume instead of restarting/);
   assert.match(page, /download-progress/);
   assert.match(page, /FAILURE DIAGNOSIS/);

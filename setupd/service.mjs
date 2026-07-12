@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 5;
+const CURRENT_SECURITY_BASELINE = 7;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -211,7 +211,7 @@ export function diagnoseSetupFailure(error, step = null) {
         code: "OLLAMA_RUNTIME_INCOMPLETE",
         problem: "Ollama's required inference-server executable is missing.",
         reason: `${technical} This is an incomplete Ollama installation, not insufficient Raspberry Pi memory.`,
-        nextAction: "Install the latest ClawBoot package and press Retry. ClawBoot will repair Ollama without redownloading Gemma.",
+        nextAction: "Install the latest ClawBoot package and press Retry. ClawBoot will repair Ollama without redownloading an existing model.",
       };
     }
     return {
@@ -442,7 +442,7 @@ export async function createSetupService(options = {}) {
                   type: "download",
                   stepId: "model",
                   kind: "model",
-                  label: "Gemma 4 E2B model",
+                  label: "Qwen 3.5 2B model",
                   percent,
                   resumable: true,
                 }),
@@ -592,6 +592,13 @@ export async function createSetupService(options = {}) {
     } catch {}
     if (ollamaInstalled) {
       try {
+        ollamaInstalled = (await runner.run("ollamaRuntimeStatus", { signal })).code === 0;
+      } catch {
+        ollamaInstalled = false;
+      }
+    }
+    if (ollamaInstalled) {
+      try {
         modelInstalled = (await verifyModel({ signal, exercise: false })).ok;
       } catch {}
     }
@@ -605,6 +612,7 @@ export async function createSetupService(options = {}) {
     }
 
     await store.update((state) => {
+      state.installation.model = MODEL_ID;
       state.installation.ollamaInstalled = ollamaInstalled;
       state.installation.modelInstalled = modelInstalled;
       state.installation.openclawInstalled = openclawInstalled;
@@ -877,6 +885,7 @@ export async function createSetupService(options = {}) {
         typeof gatewayToken === "string" && gatewayToken.length >= 24
           ? { signal, gatewayToken, secrets: [gatewayToken] }
           : { signal };
+      await runAction(jobId, "configurePrimaryModel", { signal });
       await runAction(jobId, "disableCloudMemorySearch", { signal });
       await runAction(jobId, "denySmallModelWebTools", { signal });
       await runAction(jobId, "disableElevatedTools", { signal });
@@ -899,6 +908,7 @@ export async function createSetupService(options = {}) {
         source: "setup",
         message: `OpenClaw security audit passed with no critical findings${warnings > 0 ? `; ${warnings} non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`,
       });
+      await runAction(jobId, "ensureOllamaRuntime", { signal });
       await runAction(jobId, "configureOllamaLoopback", { signal });
       let model;
       try {
@@ -1054,13 +1064,16 @@ export async function createSetupService(options = {}) {
       error.statusCode = 400;
       throw error;
     }
-    const current = store.snapshot();
+    let current = store.snapshot();
     if (current.activeJobId) {
       const active = current.jobs[current.activeJobId];
       if (active && ["queued", "running", "cancelling"].includes(active.status)) {
         return { job: active, reused: true, complete: false };
       }
     }
+
+    await reconcileInstalledState();
+    current = store.snapshot();
 
     const fullyInstalled =
       current.installation.ollamaInstalled &&
@@ -1300,13 +1313,13 @@ export async function createSetupService(options = {}) {
       if (request.method === "POST" && pathname === "/api/v1/install") {
         assertSafeMutation(request);
         const body = await readJson(request);
-        const installation = store.snapshot().installation;
-        const securityRepairOnly =
-          installation.openclawInstalled === true &&
-          installation.agentConfigured === true &&
-          installation.gatewayRunning === true &&
-          installation.securityBaseline < CURRENT_SECURITY_BASELINE;
-        if (mode === "pi" && body.riskAccepted !== true && !securityRepairOnly) {
+        const snapshot = store.snapshot();
+        const installation = snapshot.installation;
+        const previousJob = snapshot.jobs[installation.lastJobId];
+        const continuingExistingSetup =
+          installation.completedSteps.length > 0 ||
+          ["failed", "interrupted", "cancelled"].includes(previousJob?.status);
+        if (mode === "pi" && body.riskAccepted !== true && !continuingExistingSetup) {
           const error = new Error("You must explicitly accept the OpenClaw local-agent risk notice before installation.");
           error.statusCode = 422;
           throw error;

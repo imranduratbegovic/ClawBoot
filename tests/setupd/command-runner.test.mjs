@@ -46,7 +46,7 @@ test("runner uses fixed argv with shell disabled and rejects unknown actions", a
   assert.equal(calls.length, 1);
 });
 
-test("fixed install actions use the requested Gemma tag and noninteractive OpenClaw flags", async (t) => {
+test("fixed install actions use the requested local model and noninteractive OpenClaw flags", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-actions-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const calls = [];
@@ -66,24 +66,28 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
   await runner.run("openclawSecurityDeep");
   await runner.run("openclawGatewayStatus");
   await runner.run("disableCloudMemorySearch");
+  await runner.run("configurePrimaryModel");
   await runner.run("denySmallModelWebTools");
   await runner.run("disableElevatedTools");
   await runner.run("validateOpenClawConfig");
   await runner.run("restartOllama");
   await runner.run("ensureOllamaRuntime");
+  await runner.run("ollamaRuntimeStatus");
 
-  assert.deepEqual(calls[0].args, ["pull", "gemma4:e2b-it-qat"]);
+  assert.deepEqual(calls[0].args, ["pull", "qwen3.5:2b"]);
   assert.deepEqual(calls[1].args.slice(-3), ["--no-prompt", "--no-onboard", "--verify"]);
   assert.deepEqual(calls[2].args, ["doctor", "--fix", "--non-interactive"]);
   assert.deepEqual(calls[3].args, ["security", "audit", "--fix", "--json"]);
   assert.deepEqual(calls[4].args, ["security", "audit", "--deep", "--json"]);
   assert.deepEqual(calls[5].args, ["gateway", "status", "--require-rpc", "--json"]);
   assert.deepEqual(calls[6].args, ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"]);
-  assert.deepEqual(calls[7].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
-  assert.deepEqual(calls[8].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
-  assert.deepEqual(calls[9].args, ["config", "validate", "--json"]);
-  assert.deepEqual(calls[10].args.slice(-2), [config.helperPath, "restart-ollama"]);
-  assert.deepEqual(calls[11].args.slice(-2), [config.helperPath, "ensure-ollama-runtime"]);
+  assert.deepEqual(calls[7].args, ["config", "set", "agents.defaults.model.primary", '"ollama/qwen3.5:2b"', "--strict-json"]);
+  assert.deepEqual(calls[8].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
+  assert.deepEqual(calls[9].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[10].args, ["config", "validate", "--json"]);
+  assert.deepEqual(calls[11].args.slice(-2), [config.helperPath, "restart-ollama"]);
+  assert.deepEqual(calls[12].args.slice(-2), [config.helperPath, "ensure-ollama-runtime"]);
+  assert.deepEqual(calls[13].args, ["-x", "/usr/lib/ollama/llama-server"]);
   assert.equal(calls.every((call) => call.options.shell === false), true);
 });
 
@@ -140,7 +144,7 @@ test("runner strips generated gateway tokens before emitting command output", as
   assert.equal(calls[0].args.includes("--skip-hooks"), true);
   assert.deepEqual(
     calls[0].args.slice(calls[0].args.indexOf("--custom-model-id"), calls[0].args.indexOf("--custom-model-id") + 2),
-    ["--custom-model-id", "gemma4:e2b-it-qat"],
+    ["--custom-model-id", "qwen3.5:2b"],
   );
   assert.deepEqual(
     calls[0].args.slice(calls[0].args.indexOf("--gateway-bind"), calls[0].args.indexOf("--gateway-bind") + 2),
