@@ -128,6 +128,13 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 20_000,
       };
+    case "updateOpenClawStable":
+      return {
+        command: await openclawExecutable(config),
+        args: ["update", "--channel", "stable", "--yes", "--json", "--timeout", "1800"],
+        env,
+        timeoutMs: 40 * 60_000,
+      };
     case "onboardOpenClaw": {
       if (typeof context.gatewayToken !== "string" || context.gatewayToken.length < 24) {
         throw new Error("A generated gateway token is required for onboarding.");
@@ -536,6 +543,7 @@ const DEMO_LINES = {
   downloadOpenClawInstaller: ["Downloaded the official OpenClaw installer"],
   installOpenClaw: ["Installing OpenClaw without terminal onboarding", "OpenClaw installed"],
   openclawVersion: ["OpenClaw 2026.7.0"],
+  updateOpenClawStable: ['{"ok":true,"result":{"status":"updated-or-current","channel":"stable"}}'],
   onboardOpenClaw: [
     "Configured Ollama provider at http://127.0.0.1:11434",
     `Selected ollama/${MODEL_ID}`,

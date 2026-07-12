@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-export const SERVICE_VERSION = "1.0.4";
+export const SERVICE_VERSION = "1.0.5";
 export const MODEL_ID = "gemma4:e2b-it-qat";
 export const OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const GATEWAY_PORT = 18789;

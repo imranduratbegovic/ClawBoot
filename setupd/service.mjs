@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 1;
+const CURRENT_SECURITY_BASELINE = 2;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -772,6 +772,7 @@ export async function createSetupService(options = {}) {
         typeof gatewayToken === "string" && gatewayToken.length >= 24
           ? { signal, gatewayToken, secrets: [gatewayToken] }
           : { signal };
+      await runAction(jobId, "updateOpenClawStable", { signal });
       await runAction(jobId, "disableCloudMemorySearch", { signal });
       await runAction(jobId, "denySmallModelWebTools", { signal });
       await runAction(jobId, "disableElevatedTools", { signal });
