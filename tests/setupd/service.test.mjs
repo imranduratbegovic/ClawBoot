@@ -107,7 +107,7 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
-  assert.equal(status.installation.securityBaseline, 7);
+  assert.equal(status.installation.securityBaseline, 8);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);

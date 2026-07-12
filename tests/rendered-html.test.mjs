@@ -31,6 +31,8 @@ test("wires the wizard to the real resumable setup service", async () => {
   ]);
 
   assert.match(page, /qwen3\.5:2b/);
+  assert.match(page, /APP_VERSION = "1\.1\.1"/);
+  assert.match(page, /background service is/);
   assert.match(page, /api\/v1\/status/);
   assert.match(page, /activeJobId/);
   assert.match(page, /new EventSource/);
@@ -47,7 +49,7 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(css, /--red:\s*#bd1e3e/i);
   assert.match(packageJson, /"name": "clawboot"/);
   assert.match(service, /text\/event-stream/);
-  assert.match(launcher, /--app="\$SETUP_ORIGIN"/);
+  assert.match(launcher, /--app="\$SETUP_ORIGIN\/\?v=\$EXPECTED_VERSION"/);
   assert.match(launcher, /firefox-esr firefox/);
   assert.doesNotMatch(launcher, /python|WebKit|import gi/);
   assert.match(launcher, /127\.0\.0\.1:3210/);

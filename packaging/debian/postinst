@@ -7,8 +7,14 @@ warn() {
 
 case "${1:-}" in
   configure)
-    /opt/clawboot/bin/clawboot-repair || \
-      warn "initial service setup was deferred; ClawBoot will offer a graphical repair on first launch."
+    if ! /opt/clawboot/bin/clawboot-repair; then
+      warn "the first service restart did not finish; retrying once."
+      sleep 2
+      /opt/clawboot/bin/clawboot-repair || {
+        warn "ClawBoot could not verify the upgraded background service."
+        exit 1
+      }
+    fi
 
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true

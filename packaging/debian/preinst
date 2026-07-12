@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+  install|upgrade)
+    # Do not let an old in-memory daemon serve the new UI during an upgrade.
+    systemctl stop clawboot.service >/dev/null 2>&1 || true
+    ;;
+esac
+
+exit 0

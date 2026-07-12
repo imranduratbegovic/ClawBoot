@@ -4,10 +4,13 @@ set -u
 SETUP_ORIGIN=http://127.0.0.1:3210
 STATUS_URL="$SETUP_ORIGIN/api/v1/status"
 NODE=/opt/clawboot/runtime/bin/node
+VERSION_FILE=/opt/clawboot/VERSION
+EXPECTED_VERSION="$(cat "$VERSION_FILE" 2>/dev/null || true)"
 
 service_ready() {
-  [ -x "$NODE" ] || return 1
-  "$NODE" -e "fetch('$STATUS_URL', { signal: AbortSignal.timeout(1500) }).then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1
+  [ -x "$NODE" ] && [ -n "$EXPECTED_VERSION" ] || return 1
+  "$NODE" -e "fetch(process.argv[1], { signal: AbortSignal.timeout(1500) }).then(async (response) => { const body = await response.json(); process.exit(response.ok && body.serviceVersion === process.argv[2] ? 0 : 1); }).catch(() => process.exit(1));" \
+    "$STATUS_URL" "$EXPECTED_VERSION" >/dev/null 2>&1
 }
 
 wait_for_service() {
@@ -48,7 +51,7 @@ for browser in chromium chromium-browser; do
     profile="${XDG_CONFIG_HOME:-$HOME/.config}/clawboot/browser"
     mkdir -p "$profile"
     exec "$browser" \
-      --app="$SETUP_ORIGIN" \
+      --app="$SETUP_ORIGIN/?v=$EXPECTED_VERSION" \
       --class=io.openclaw.ClawBoot \
       --name=ClawBoot \
       --user-data-dir="$profile" \
@@ -62,7 +65,7 @@ done
 
 for browser in firefox-esr firefox; do
   if command -v "$browser" >/dev/null 2>&1; then
-    exec "$browser" --private-window "$SETUP_ORIGIN"
+    exec "$browser" --private-window "$SETUP_ORIGIN/?v=$EXPECTED_VERSION"
   fi
 done
 

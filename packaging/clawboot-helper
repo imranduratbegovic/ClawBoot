@@ -103,6 +103,23 @@ write_ollama_service() {
   trap - EXIT HUP INT TERM
 }
 
+normalize_ollama_runtime_permissions() {
+  [ -d /usr/lib/ollama ] || return 0
+  chown root:root /usr/lib/ollama
+  chmod 0755 /usr/lib/ollama
+  find /usr/lib/ollama -type d -exec chmod 0755 {} +
+}
+
+verify_ollama_runtime_access() {
+  test -x /usr/bin/ollama
+  test -x /usr/lib/ollama/llama-server
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u ollama -- test -x /usr/lib/ollama/llama-server
+  else
+    su -s /bin/sh -c 'test -x /usr/lib/ollama/llama-server' ollama
+  fi
+}
+
 archive_is_valid() {
   [ -f "$1" ] && echo "$OLLAMA_ARCHIVE_SHA256  $1" | sha256sum --check --status
 }
@@ -199,16 +216,18 @@ install_ollama_arm64() {
   download_ollama_archive
   systemctl stop ollama.service >/dev/null 2>&1 || true
   rm -rf /usr/lib/ollama
+  install -d -o root -g root -m 0755 /usr/lib/ollama
   echo "Installing Ollama into /usr."
   zstd --decompress --stdout "$OLLAMA_ARCHIVE_PATH" | tar -xf - -C /usr
 
-  test -x /usr/bin/ollama
-  if [ ! -x /usr/lib/ollama/llama-server ]; then
+  normalize_ollama_runtime_permissions
+  write_ollama_service
+  if ! verify_ollama_runtime_access; then
     echo "The verified Ollama archive did not install /usr/lib/ollama/llama-server." >&2
+    ls -ld /usr/lib/ollama /usr/lib/ollama/llama-server >&2 || true
     echo "The archive was kept so Retry can repair the runtime without downloading it again." >&2
     exit 1
   fi
-  write_ollama_service
   rm -f "$OLLAMA_ARCHIVE_PATH"
   echo "Ollama arm64 installed."
 }
@@ -216,6 +235,13 @@ install_ollama_arm64() {
 ensure_ollama_runtime() {
   require_pi_arm64
   if [ -x /usr/bin/ollama ] && [ -x /usr/lib/ollama/llama-server ]; then
+    normalize_ollama_runtime_permissions
+    write_ollama_service
+    if ! verify_ollama_runtime_access; then
+      echo "Ollama's inference server exists but the ollama service user cannot access it." >&2
+      ls -ld /usr/lib/ollama /usr/lib/ollama/llama-server >&2 || true
+      exit 1
+    fi
     echo "Ollama runtime and llama-server are complete."
     return 0
   fi
@@ -229,9 +255,9 @@ configure_ollama_loopback() {
     ln -sf /usr/local/bin/ollama /usr/bin/ollama
   fi
   test -x /usr/bin/ollama
-  if [ ! -f /etc/systemd/system/ollama.service ]; then
-    write_ollama_service
-  fi
+  normalize_ollama_runtime_permissions
+  write_ollama_service
+  verify_ollama_runtime_access
 
   install -d -o root -g root -m 0755 /etc/systemd/system/ollama.service.d
   MEMORY_KIB="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)"
@@ -253,6 +279,8 @@ configure_ollama_loopback() {
   rm -f "$OVERRIDE_TMP"
   trap - EXIT HUP INT TERM
 
+  systemctl stop ollama.service >/dev/null 2>&1 || true
+  pkill -x ollama >/dev/null 2>&1 || true
   systemctl daemon-reload
   systemctl enable ollama.service
   systemctl restart ollama.service
@@ -267,7 +295,26 @@ configure_ollama_loopback() {
     fi
     sleep 1
   done
-  echo "Ollama is running on 127.0.0.1:11434 with a $CONTEXT_LENGTH-token context."
+  MAIN_PID="$(systemctl show --property MainPID --value ollama.service)"
+  case "$MAIN_PID" in
+    ''|0|*[!0-9]*)
+      echo "Ollama answered on port 11434, but the managed system service has no running process." >&2
+      exit 1
+      ;;
+  esac
+  EXPECTED_EXE="$(readlink -f /usr/bin/ollama)"
+  RUNNING_EXE="$(readlink -f "/proc/$MAIN_PID/exe" 2>/dev/null || true)"
+  if [ "$RUNNING_EXE" != "$EXPECTED_EXE" ]; then
+    echo "A different Ollama process is answering on port 11434." >&2
+    echo "Expected $EXPECTED_EXE but systemd is running ${RUNNING_EXE:-an unknown executable}." >&2
+    exit 1
+  fi
+  VERSION_RESPONSE="$(curl --fail --silent --show-error http://127.0.0.1:11434/api/version)"
+  if ! printf '%s' "$VERSION_RESPONSE" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"0\.31\.2"'; then
+    echo "Ollama answered with an unexpected version: $VERSION_RESPONSE" >&2
+    exit 1
+  fi
+  echo "Ollama $OLLAMA_VERSION is running from $RUNNING_EXE with a $CONTEXT_LENGTH-token context."
 }
 
 restart_ollama() {

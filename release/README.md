@@ -1,12 +1,12 @@
-# ClawBoot 1.1.0
+# ClawBoot 1.1.1
 
-`clawboot_1.1.0_arm64.deb` is the self-contained graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
+`clawboot_1.1.1_arm64.deb` is the self-contained graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
 
-This release repairs incomplete Ollama runtimes during Retry even when the earlier Ollama step was already saved as complete. It also changes the supported 8 GB Pi default to the much smaller `qwen3.5:2b` model and migrates OpenClaw to use it automatically.
+This release repairs the Ollama runtime directory permissions created by earlier ClawBoot versions, verifies `llama-server` as the actual `ollama` service user, and prevents an old background service from surviving an application upgrade. The local model remains `qwen3.5:2b`.
 
 SHA-256:
 
 ```text
-3763ddb9eb0452a565e2c178c63d4f4c579940745941ef2f16e03110125f4b5f  clawboot_1.1.0_arm64.deb
-3763ddb9eb0452a565e2c178c63d4f4c579940745941ef2f16e03110125f4b5f  clawboot_arm64.deb
+e43664b3ee75bc91612e0e834017c5ea7890bc1de308a140e16274b6e9f3ff4d  clawboot_1.1.1_arm64.deb
+e43664b3ee75bc91612e0e834017c5ea7890bc1de308a140e16274b6e9f3ff4d  clawboot_arm64.deb
 ```

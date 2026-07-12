@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 7;
+const CURRENT_SECURITY_BASELINE = 8;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -181,13 +181,15 @@ function friendlyError(error) {
   if (error instanceof CommandCancelledError || error?.code === "SETUP_CANCELLED") {
     return "Setup was cancelled.";
   }
+  const sanitize = createSanitizer();
   if (error?.action === "installOllamaArm64") {
     if (error?.exitCode === 74) {
       return "The Ollama runtime download was corrupted and removed. Check the connection, then press Retry to download a clean copy.";
     }
-    return "The Ollama runtime download was interrupted. Its completed bytes were saved; check the connection and press Retry to continue instead of starting over.";
+    if ([75, 130].includes(error?.exitCode)) {
+      return "The Ollama runtime download was interrupted. Its completed bytes were saved; check the connection and press Retry to continue instead of starting over.";
+    }
   }
-  const sanitize = createSanitizer();
   return sanitize(error?.message ?? "Setup failed unexpectedly.").slice(0, 2_000);
 }
 
@@ -209,9 +211,9 @@ export function diagnoseSetupFailure(error, step = null) {
       return {
         ...diagnosis,
         code: "OLLAMA_RUNTIME_INCOMPLETE",
-        problem: "Ollama's required inference-server executable is missing.",
-        reason: `${technical} This is an incomplete Ollama installation, not insufficient Raspberry Pi memory.`,
-        nextAction: "Install the latest ClawBoot package and press Retry. ClawBoot will repair Ollama without redownloading an existing model.",
+        problem: "Ollama cannot access its required inference-server executable.",
+        reason: `${technical} This is caused by the installed runtime path or its permissions, not insufficient Raspberry Pi memory.`,
+        nextAction: "Install ClawBoot 1.1.1 or newer and press Retry. It repairs the existing Ollama files in place without redownloading the local model.",
       };
     }
     return {

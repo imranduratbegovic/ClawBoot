@@ -2,6 +2,9 @@
 set -eu
 
 SERVICE_USER=openclaw
+VERSION_FILE=/opt/clawboot/VERSION
+NODE=/opt/clawboot/runtime/bin/node
+STATUS_URL=http://127.0.0.1:3210/api/v1/status
 
 if ! getent group "$SERVICE_USER" >/dev/null 2>&1; then
   groupadd --system "$SERVICE_USER"
@@ -22,3 +25,20 @@ systemctl start "user@${SERVICE_UID}.service" >/dev/null 2>&1 || true
 systemctl daemon-reload
 systemctl enable clawboot.service >/dev/null 2>&1
 systemctl restart clawboot.service
+
+EXPECTED_VERSION="$(cat "$VERSION_FILE")"
+ATTEMPT=0
+while [ "$ATTEMPT" -lt 30 ]; do
+  if systemctl is-active --quiet clawboot.service && \
+    "$NODE" -e "fetch(process.argv[1], { signal: AbortSignal.timeout(1500) }).then(async (response) => { const body = await response.json(); process.exit(response.ok && body.serviceVersion === process.argv[2] ? 0 : 1); }).catch(() => process.exit(1));" \
+      "$STATUS_URL" "$EXPECTED_VERSION" >/dev/null 2>&1; then
+    echo "ClawBoot service $EXPECTED_VERSION is running."
+    exit 0
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 0.4
+done
+
+echo "ClawBoot service did not restart as version $EXPECTED_VERSION." >&2
+systemctl status --no-pager clawboot.service >&2 || true
+exit 1

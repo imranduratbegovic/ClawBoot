@@ -16,7 +16,7 @@ import time
 import urllib.request
 
 
-PACKAGE_VERSION = "1.1.0"
+PACKAGE_VERSION = "1.1.1"
 NODE_VERSION = "24.18.0"
 NODE_ARCHIVE = f"node-v{NODE_VERSION}-linux-arm64.tar.xz"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ARCHIVE}"
@@ -36,6 +36,7 @@ def copy_script(source: Path, target: Path) -> None:
 def prepare_data_tree(root: Path, stage: Path) -> None:
     shutil.copytree(root / "setupd", stage / "opt/clawboot/setupd")
     shutil.copytree(root / "dist/client", stage / "opt/clawboot/dist/client")
+    (stage / "opt/clawboot/VERSION").write_bytes(f"{PACKAGE_VERSION}\n".encode("ascii"))
     copy_script(root / "packaging/clawboot-service", stage / "opt/clawboot/bin/clawboot-service")
     copy_script(root / "packaging/clawboot-repair", stage / "opt/clawboot/bin/clawboot-repair")
     copy_script(root / "desktop/clawboot", stage / "usr/bin/clawboot")
@@ -152,7 +153,7 @@ def build_control_archive(root: Path, target: Path, installed_kib: int) -> None:
     # the unsupported PAX type-x records.
     with tarfile.open(target, "w:xz", format=tarfile.GNU_FORMAT) as output:
         add_bytes(output, "./control", control.encode(), 0o644)
-        for name in ("postinst", "prerm", "postrm"):
+        for name in ("preinst", "postinst", "prerm", "postrm"):
             body = (root / f"packaging/debian/{name}").read_bytes().replace(b"\r\n", b"\n")
             add_bytes(output, f"./{name}", body, 0o755)
 

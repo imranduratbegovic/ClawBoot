@@ -35,6 +35,7 @@ type FailureDiagnosis = {
 
 const MODEL_ID = "qwen3.5:2b";
 const APP_NAME = "ClawBoot";
+const APP_VERSION = "1.1.1";
 const WIZARD_STEPS = ["System", "Model", "Access", "Review", "Install", "Messaging", "Done"];
 const EMPTY_CHANNELS: ChannelState = {
   telegram: { status: "not_configured", bot: null, error: null },
@@ -114,6 +115,7 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [checking, setChecking] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
+  const [serviceVersion, setServiceVersion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [permission, setPermission] = useState<PermissionProfile>("guarded");
   const [riskAccepted, setRiskAccepted] = useState(false);
@@ -221,6 +223,16 @@ export default function Home() {
       if (!preflightResponse.ok || !statusResponse.ok) throw new Error("ClawBoot service is not responding.");
       const preflight = await preflightResponse.json() as Record<string, unknown>;
       const status = await statusResponse.json() as Record<string, unknown>;
+      const preflightVersion = String(preflight.serviceVersion ?? "");
+      const statusVersion = String(status.serviceVersion ?? "");
+      setServiceVersion(statusVersion || preflightVersion || null);
+      if (preflightVersion !== APP_VERSION || statusVersion !== APP_VERSION) {
+        setConnected(false);
+        setChecks([]);
+        setStep(0);
+        setError(`The ClawBoot app is ${APP_VERSION}, but its background service is ${statusVersion || preflightVersion || "unknown"}. Close and reopen ClawBoot to run the graphical service repair.`);
+        return;
+      }
       const activeJob = status.activeJob as Record<string, unknown> | null;
       const lastJob = status.lastJob as Record<string, unknown> | null;
       const installation = status.installation as Record<string, unknown> | undefined;
@@ -233,7 +245,7 @@ export default function Home() {
         setInstallProgress(Number(activeJob.progress ?? 0));
         goTo(4);
         connectToJob(String(status.activeJobId));
-      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 7) {
+      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 8) {
         setInstallState("failed");
         setInstallProgress(Number(lastJob?.progress ?? 86));
         setInstallSteps(lastJob?.steps ? mapJobSteps(lastJob.steps) : DEFAULT_INSTALL_STEPS);
@@ -357,7 +369,7 @@ export default function Home() {
             const available = index <= highestStep || index <= step || installState === "complete";
             return <button key={label} className={index === step ? "is-active" : ""} disabled={!available || index === 4 && installState === "running"} onClick={() => available && goTo(index)} aria-current={index === step ? "step" : undefined}>{label}{index < step && <span aria-label="complete">✓</span>}</button>;
           })}</nav>
-          <div className="rail-version">{APP_NAME}<br />Version 1.1.0</div>
+          <div className="rail-version">{APP_NAME}<br />Version {APP_VERSION}<br />Service {serviceVersion ?? "checking"}</div>
         </aside>
 
         <section className="step-content" aria-live="polite">
