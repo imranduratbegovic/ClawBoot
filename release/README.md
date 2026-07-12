@@ -1,10 +1,10 @@
-# ClawBoot 1.0.3
+# ClawBoot 1.0.4
 
-`clawboot_1.0.3_arm64.deb` is the self-contained graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
+`clawboot_1.0.4_arm64.deb` is the self-contained graphical installer for Raspberry Pi 5 running 64-bit Raspberry Pi OS Desktop.
 
 SHA-256:
 
 ```text
-4f1a8d9e51d32ef2239623b391ffdeb1c6b7993a6e611e3dff0e3e6deb605d48  clawboot_1.0.3_arm64.deb
-4f1a8d9e51d32ef2239623b391ffdeb1c6b7993a6e611e3dff0e3e6deb605d48  clawboot_arm64.deb
+bdf7b036333a9a1461fbac46b539c04f8f9d4ce7f8ee31818022c873d9040d78  clawboot_1.0.4_arm64.deb
+bdf7b036333a9a1461fbac46b539c04f8f9d4ce7f8ee31818022c873d9040d78  clawboot_arm64.deb
 ```

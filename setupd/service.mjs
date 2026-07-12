@@ -1169,7 +1169,13 @@ export async function createSetupService(options = {}) {
       if (request.method === "POST" && pathname === "/api/v1/install") {
         assertSafeMutation(request);
         const body = await readJson(request);
-        if (mode === "pi" && body.riskAccepted !== true) {
+        const installation = store.snapshot().installation;
+        const securityRepairOnly =
+          installation.openclawInstalled === true &&
+          installation.agentConfigured === true &&
+          installation.gatewayRunning === true &&
+          installation.securityBaseline < CURRENT_SECURITY_BASELINE;
+        if (mode === "pi" && body.riskAccepted !== true && !securityRepairOnly) {
           const error = new Error("You must explicitly accept the OpenClaw local-agent risk notice before installation.");
           error.statusCode = 422;
           throw error;
