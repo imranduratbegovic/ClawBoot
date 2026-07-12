@@ -233,7 +233,7 @@ export default function Home() {
         setInstallProgress(Number(activeJob.progress ?? 0));
         goTo(4);
         connectToJob(String(status.activeJobId));
-      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 4) {
+      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 5) {
         setInstallState("failed");
         setInstallProgress(Number(lastJob?.progress ?? 86));
         setInstallSteps(lastJob?.steps ? mapJobSteps(lastJob.steps) : DEFAULT_INSTALL_STEPS);
@@ -357,7 +357,7 @@ export default function Home() {
             const available = index <= highestStep || index <= step || installState === "complete";
             return <button key={label} className={index === step ? "is-active" : ""} disabled={!available || index === 4 && installState === "running"} onClick={() => available && goTo(index)} aria-current={index === step ? "step" : undefined}>{label}{index < step && <span aria-label="complete">✓</span>}</button>;
           })}</nav>
-          <div className="rail-version">{APP_NAME}<br />Version 1.0.9</div>
+          <div className="rail-version">{APP_NAME}<br />Version 1.0.10</div>
         </aside>
 
         <section className="step-content" aria-live="polite">

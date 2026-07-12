@@ -197,13 +197,30 @@ install_ollama_arm64() {
   prepare_system
 
   download_ollama_archive
+  systemctl stop ollama.service >/dev/null 2>&1 || true
+  rm -rf /usr/lib/ollama
   echo "Installing Ollama into /usr."
   zstd --decompress --stdout "$OLLAMA_ARCHIVE_PATH" | tar -xf - -C /usr
 
   test -x /usr/bin/ollama
+  if [ ! -x /usr/lib/ollama/llama-server ]; then
+    echo "The verified Ollama archive did not install /usr/lib/ollama/llama-server." >&2
+    echo "The archive was kept so Retry can repair the runtime without downloading it again." >&2
+    exit 1
+  fi
   write_ollama_service
   rm -f "$OLLAMA_ARCHIVE_PATH"
   echo "Ollama arm64 installed."
+}
+
+ensure_ollama_runtime() {
+  require_pi_arm64
+  if [ -x /usr/bin/ollama ] && [ -x /usr/lib/ollama/llama-server ]; then
+    echo "Ollama runtime and llama-server are complete."
+    return 0
+  fi
+  echo "Ollama is missing its inference server; reinstalling the verified ARM64 runtime."
+  install_ollama_arm64
 }
 
 configure_ollama_loopback() {
@@ -272,6 +289,7 @@ restart_ollama() {
 case "$ACTION" in
   prepare-system) prepare_system ;;
   install-ollama-arm64) install_ollama_arm64 ;;
+  ensure-ollama-runtime) ensure_ollama_runtime ;;
   configure-ollama-loopback) configure_ollama_loopback ;;
   restart-ollama) restart_ollama ;;
   *)

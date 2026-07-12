@@ -2,5 +2,6 @@ Defaults:openclaw env_reset
 Defaults:openclaw secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper prepare-system
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper install-ollama-arm64
+openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper ensure-ollama-runtime
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper configure-ollama-loopback
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper restart-ollama

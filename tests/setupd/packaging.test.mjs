@@ -29,9 +29,12 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(helper, /--retry 10 --retry-delay 3 --retry-all-errors/);
   assert.match(helper, /CLAWBOOT_DOWNLOAD ollama/);
   assert.match(helper, /partial download was saved; Retry will continue/);
+  assert.match(helper, /\[ ! -x \/usr\/lib\/ollama\/llama-server \]/);
+  assert.match(helper, /rm -rf \/usr\/lib\/ollama/);
+  assert.match(helper, /ensure-ollama-runtime\) ensure_ollama_runtime/);
   assert.match(helper, /restart-ollama\) restart_ollama/);
   assert.match(helper, /systemctl restart ollama\.service/);
-  for (const action of ["prepare-system", "install-ollama-arm64", "configure-ollama-loopback", "restart-ollama"]) {
+  for (const action of ["prepare-system", "install-ollama-arm64", "ensure-ollama-runtime", "configure-ollama-loopback", "restart-ollama"]) {
     assert.match(sudoers, new RegExp(`^openclaw ALL=\\(root\\) NOPASSWD: /usr/local/libexec/clawboot-helper ${action}$`, "m"));
   }
   assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);

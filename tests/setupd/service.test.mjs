@@ -23,6 +23,10 @@ test("setup failures become plain-language technical diagnoses", () => {
   const privilege = diagnoseSetupFailure(new Error("Allowlisted action restartOllama failed (exit 1): sudo: a password is required"), { title: "Run final checks" });
   assert.equal(privilege.code, "PRIVILEGE_RULE_MISSING");
   assert.match(privilege.reason, /does not need or store your desktop password/);
+
+  const runtime = diagnoseSetupFailure(new Error('http://127.0.0.1:11434/api/generate returned HTTP 500: {"error":"llama-server binary not found"}'), { title: "Run final checks" });
+  assert.equal(runtime.code, "OLLAMA_RUNTIME_INCOMPLETE");
+  assert.match(runtime.reason, /not insufficient Raspberry Pi memory/);
 });
 
 test("Ollama byte markers become bounded resumable download progress", () => {
@@ -101,7 +105,7 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
-  assert.equal(status.installation.securityBaseline, 4);
+  assert.equal(status.installation.securityBaseline, 5);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);

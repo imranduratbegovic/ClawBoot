@@ -76,6 +76,13 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 3 * 60 * 60_000,
       };
+    case "ensureOllamaRuntime":
+      return {
+        command: sudo,
+        args: ["-n", helper, "ensure-ollama-runtime"],
+        env,
+        timeoutMs: 3 * 60 * 60_000,
+      };
     case "configureOllamaLoopback":
       return {
         command: sudo,
@@ -530,6 +537,7 @@ const DEMO_LINES = {
     "CLAWBOOT_DOWNLOAD ollama 1556004266 1556004266",
     "Ollama installed",
   ],
+  ensureOllamaRuntime: ["Ollama runtime and llama-server are complete"],
   configureOllamaLoopback: ["Ollama enabled on 127.0.0.1:11434"],
   restartOllama: ["Ollama restarted and is ready on 127.0.0.1:11434"],
   ollamaVersion: ["ollama version 0.11.0"],

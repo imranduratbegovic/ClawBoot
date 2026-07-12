@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 4;
+const CURRENT_SECURITY_BASELINE = 5;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -205,6 +205,15 @@ export function diagnoseSetupFailure(error, step = null) {
   };
 
   if (/127\.0\.0\.1:11434|localhost:11434/.test(lower)) {
+    if (/llama-server binary not found|missing.*llama-server/.test(lower)) {
+      return {
+        ...diagnosis,
+        code: "OLLAMA_RUNTIME_INCOMPLETE",
+        problem: "Ollama's required inference-server executable is missing.",
+        reason: `${technical} This is an incomplete Ollama installation, not insufficient Raspberry Pi memory.`,
+        nextAction: "Install the latest ClawBoot package and press Retry. ClawBoot will repair Ollama without redownloading Gemma.",
+      };
+    }
     return {
       ...diagnosis,
       code: "LOCAL_MODEL_ERROR",
@@ -807,6 +816,7 @@ export async function createSetupService(options = {}) {
           message: "Ollama is already installed; keeping the existing installation.",
         });
       }
+      await runAction(jobId, "ensureOllamaRuntime", { signal });
       await runAction(jobId, "configureOllamaLoopback", { signal });
       await markInstallation(jobId, { ollamaInstalled: true });
     },
