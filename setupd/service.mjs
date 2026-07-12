@@ -238,6 +238,15 @@ export function diagnoseSetupFailure(error, step = null) {
       nextAction: "Check the Pi's internet connection, then press Retry. Saved downloads will resume.",
     };
   }
+  if (/sudo:.*password is required|a password is required/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "PRIVILEGE_RULE_MISSING",
+      problem: "ClawBoot's restricted system-helper permission is missing or outdated.",
+      reason: `${technical} ClawBoot does not need or store your desktop password.`,
+      nextAction: "Install the latest ClawBoot package over this version, reopen it, and press Retry.",
+    };
+  }
   if (/eacces|permission denied|operation not permitted/.test(lower)) {
     return {
       ...diagnosis,

@@ -19,6 +19,10 @@ test("setup failures become plain-language technical diagnoses", () => {
   const ollama = diagnoseSetupFailure(new Error('http://127.0.0.1:11434/api/generate returned HTTP 500: {"error":"model runner crashed"}'), { title: "Run final checks" });
   assert.equal(ollama.code, "LOCAL_MODEL_ERROR");
   assert.match(ollama.problem, /local Ollama/i);
+
+  const privilege = diagnoseSetupFailure(new Error("Allowlisted action restartOllama failed (exit 1): sudo: a password is required"), { title: "Run final checks" });
+  assert.equal(privilege.code, "PRIVILEGE_RULE_MISSING");
+  assert.match(privilege.reason, /does not need or store your desktop password/);
 });
 
 test("Ollama byte markers become bounded resumable download progress", () => {
