@@ -233,7 +233,7 @@ export default function Home() {
         setInstallProgress(Number(activeJob.progress ?? 0));
         goTo(4);
         connectToJob(String(status.activeJobId));
-      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 3) {
+      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 4) {
         setInstallState("failed");
         setInstallProgress(Number(lastJob?.progress ?? 86));
         setInstallSteps(lastJob?.steps ? mapJobSteps(lastJob.steps) : DEFAULT_INSTALL_STEPS);
@@ -357,7 +357,7 @@ export default function Home() {
             const available = index <= highestStep || index <= step || installState === "complete";
             return <button key={label} className={index === step ? "is-active" : ""} disabled={!available || index === 4 && installState === "running"} onClick={() => available && goTo(index)} aria-current={index === step ? "step" : undefined}>{label}{index < step && <span aria-label="complete">✓</span>}</button>;
           })}</nav>
-          <div className="rail-version">{APP_NAME}<br />Version 1.0.7</div>
+          <div className="rail-version">{APP_NAME}<br />Version 1.0.8</div>
         </aside>
 
         <section className="step-content" aria-live="polite">
@@ -367,7 +367,7 @@ export default function Home() {
             {connected && <>{demoMode && <div className="message message--notice"><strong>Preview mode</strong><span>This computer is not a Raspberry Pi 5. The wizard is safe to explore and simulates installation.</span></div>}<div className="selection-list system-list">{checks.map((item) => <div className="selection-row" key={item.id}><span className="row-glyph" aria-hidden="true">{item.status === "pass" ? "✓" : item.status === "warn" ? "!" : "×"}</span><span className="row-copy"><strong>{item.label}</strong><small>{item.value} — {item.detail}</small></span><StatusMark status={item.status} /></div>)}</div></>}
           </div>}
 
-          {step === 1 && <div className="page"><header><h1>Choose your local model</h1><p>This model runs entirely on the Raspberry Pi through Ollama.</p></header><div className="selection-list"><div className="selection-row is-selected"><span className="radio-mark" aria-hidden="true"><i /></span><span className="row-copy"><strong>Gemma 4 E2B QAT</strong><small>Effective 2.3B model · 4.3 GB download · local-only</small></span><span className="recommended">RECOMMENDED</span></div></div><div className="info-table"><div><span>Model ID</span><strong>{MODEL_ID}</strong></div><div><span>Runtime</span><strong>Ollama for ARM64 · 1.5 GB</strong></div><div><span>First setup download</span><strong>About 5.8 GB total</strong></div><div><span>Memory profile</span><strong>8K context on 8 GB · 16K on 16 GB</strong></div><div><span>Cloud fallback</span><strong>Disabled</strong></div></div><p className="footnote">Expect roughly 16 minutes at 50 Mbps or 80 minutes at 10 Mbps, plus installation time. ClawBoot saves partial downloads and resumes them after interruptions or Retry.</p></div>}
+          {step === 1 && <div className="page"><header><h1>Choose your local model</h1><p>This model runs entirely on the Raspberry Pi through Ollama.</p></header><div className="selection-list"><div className="selection-row is-selected"><span className="radio-mark" aria-hidden="true"><i /></span><span className="row-copy"><strong>Gemma 4 E2B QAT</strong><small>Effective 2.3B model · 4.3 GB download · local-only</small></span><span className="recommended">RECOMMENDED</span></div></div><div className="info-table"><div><span>Model ID</span><strong>{MODEL_ID}</strong></div><div><span>Runtime</span><strong>Ollama for ARM64 · 1.5 GB</strong></div><div><span>First setup download</span><strong>About 5.8 GB total</strong></div><div><span>Memory profile</span><strong>4K context on 8 GB · 8K on 16 GB</strong></div><div><span>Cloud fallback</span><strong>Disabled</strong></div></div><p className="footnote">Expect roughly 16 minutes at 50 Mbps or 80 minutes at 10 Mbps, plus installation time. ClawBoot saves partial downloads and resumes them after interruptions or Retry.</p></div>}
 
           {step === 2 && <div className="page"><header><h1>Choose agent access</h1><p>You can change this later. The recommended option asks before making changes.</p></header><div className="selection-list">{PERMISSIONS.map((profile) => <label className={`selection-row permission-row ${permission === profile.id ? "is-selected" : ""}`} key={profile.id}><input type="radio" name="permission" value={profile.id} checked={permission === profile.id} onChange={() => setPermission(profile.id)} /><span className="radio-mark" aria-hidden="true">{permission === profile.id && <i />}</span><span className="row-copy"><strong>{profile.title}</strong><small>{profile.description}</small></span>{profile.id === "guarded" && <span className="recommended">RECOMMENDED</span>}</label>)}</div><label className="consent-row"><input type="checkbox" checked={riskAccepted} onChange={(event) => setRiskAccepted(event.target.checked)} /><span>I understand that an agent can make mistakes and I should review its actions.</span></label></div>}
 

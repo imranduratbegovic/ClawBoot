@@ -74,7 +74,7 @@ npm run dev
 Build the graphical ARM64 desktop package after `npm run build`:
 
 ```bash
-python3 scripts/build-deb.py --output clawboot_1.0.7_arm64.deb
+python3 scripts/build-deb.py --output clawboot_1.0.8_arm64.deb
 ```
 
 The package builder downloads the official Node.js Linux ARM64 archive and refuses to package it unless its SHA-256 matches the pinned release checksum.

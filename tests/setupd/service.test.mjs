@@ -15,6 +15,10 @@ test("setup failures become plain-language technical diagnoses", () => {
   const disk = diagnoseSetupFailure(new Error("ENOSPC: no space left on device"), { title: "Download model" });
   assert.equal(disk.code, "DISK_FULL");
   assert.match(disk.nextAction, /Free some disk space/);
+
+  const ollama = diagnoseSetupFailure(new Error('http://127.0.0.1:11434/api/generate returned HTTP 500: {"error":"model runner crashed"}'), { title: "Run final checks" });
+  assert.equal(ollama.code, "LOCAL_MODEL_ERROR");
+  assert.match(ollama.problem, /local Ollama/i);
 });
 
 test("Ollama byte markers become bounded resumable download progress", () => {
@@ -93,7 +97,7 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
-  assert.equal(status.installation.securityBaseline, 3);
+  assert.equal(status.installation.securityBaseline, 4);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);

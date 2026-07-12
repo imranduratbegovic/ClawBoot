@@ -69,6 +69,7 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
   await runner.run("denySmallModelWebTools");
   await runner.run("disableElevatedTools");
   await runner.run("validateOpenClawConfig");
+  await runner.run("restartOllama");
 
   assert.deepEqual(calls[0].args, ["pull", "gemma4:e2b-it-qat"]);
   assert.deepEqual(calls[1].args.slice(-3), ["--no-prompt", "--no-onboard", "--verify"]);
@@ -80,6 +81,7 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
   assert.deepEqual(calls[7].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
   assert.deepEqual(calls[8].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
   assert.deepEqual(calls[9].args, ["config", "validate", "--json"]);
+  assert.deepEqual(calls[10].args.slice(-2), [config.helperPath, "restart-ollama"]);
   assert.equal(calls.every((call) => call.options.shell === false), true);
 });
 

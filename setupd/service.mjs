@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 3;
+const CURRENT_SECURITY_BASELINE = 4;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -150,8 +150,17 @@ async function fetchJson(url, options = {}, timeoutMs = 10_000) {
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const response = await fetch(url, { ...options, signal });
-  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}.`);
-  return response.json();
+  const body = await response.text();
+  if (!response.ok) {
+    const safeUrl = String(url).replace(/\/bot[^/]+\//, "/bot[REDACTED]/");
+    const detail = createSanitizer()(body).trim().slice(0, 800);
+    throw new Error(`${safeUrl} returned HTTP ${response.status}${detail ? `: ${detail}` : ""}.`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`${url} returned an unreadable JSON response.`);
+  }
 }
 
 function modelIsPresent(tags) {
@@ -195,6 +204,15 @@ export function diagnoseSetupFailure(error, step = null) {
     retryable: true,
   };
 
+  if (/127\.0\.0\.1:11434|localhost:11434/.test(lower)) {
+    return {
+      ...diagnosis,
+      code: "LOCAL_MODEL_ERROR",
+      problem: "The local Ollama model engine could not generate a test response.",
+      reason: `${technical} This address belongs to Ollama on this Raspberry Pi, not a remote website.`,
+      nextAction: "Close memory-heavy applications and press Retry. If it repeats, restart the Pi once and try again; the model is already downloaded.",
+    };
+  }
   if (/http\s+5\d\d|returned\s+5\d\d|status(?: code)?\s*5\d\d/.test(lower)) {
     return {
       ...diagnosis,
@@ -489,7 +507,7 @@ export async function createSetupService(options = {}) {
           prompt: "Reply with exactly READY.",
           stream: false,
           keep_alive: "10m",
-          options: { num_predict: 8, temperature: 0 },
+          options: { num_ctx: 2048, num_predict: 8, temperature: 0 },
         }),
         signal,
       },
@@ -862,7 +880,20 @@ export async function createSetupService(options = {}) {
         source: "setup",
         message: `OpenClaw security audit passed with no critical findings${warnings > 0 ? `; ${warnings} non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`,
       });
-      const model = await verifyModel({ signal, exercise: true });
+      await runAction(jobId, "configureOllamaLoopback", { signal });
+      let model;
+      try {
+        model = await verifyModel({ signal, exercise: true });
+      } catch (error) {
+        if (!/127\.0\.0\.1:11434|localhost:11434/.test(String(error?.message ?? ""))) throw error;
+        await emit(jobId, {
+          type: "log",
+          source: "setup",
+          message: "The local model test failed once. Restarting Ollama and trying one more time.",
+        });
+        await runAction(jobId, "restartOllama", { signal });
+        model = await verifyModel({ signal, exercise: true });
+      }
       if (!model.ok) throw new Error(model.reason ?? "The local model did not answer its health check.");
       await emit(jobId, {
         type: "log",

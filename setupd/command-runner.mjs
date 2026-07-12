@@ -83,6 +83,13 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 2 * 60_000,
       };
+    case "restartOllama":
+      return {
+        command: sudo,
+        args: ["-n", helper, "restart-ollama"],
+        env,
+        timeoutMs: 2 * 60_000,
+      };
     case "ollamaVersion":
       return {
         command: await executable(["/usr/bin/ollama", "/usr/local/bin/ollama"]),
@@ -524,6 +531,7 @@ const DEMO_LINES = {
     "Ollama installed",
   ],
   configureOllamaLoopback: ["Ollama enabled on 127.0.0.1:11434"],
+  restartOllama: ["Ollama restarted and is ready on 127.0.0.1:11434"],
   ollamaVersion: ["ollama version 0.11.0"],
   pullModel: [
     `pulling manifest for ${MODEL_ID}`,

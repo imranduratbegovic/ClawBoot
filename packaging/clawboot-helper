@@ -219,9 +219,9 @@ configure_ollama_loopback() {
   install -d -o root -g root -m 0755 /etc/systemd/system/ollama.service.d
   MEMORY_KIB="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)"
   if [ "${MEMORY_KIB:-0}" -ge 14680064 ]; then
-    CONTEXT_LENGTH=16384
-  else
     CONTEXT_LENGTH=8192
+  else
+    CONTEXT_LENGTH=4096
   fi
   OVERRIDE_TMP="$(mktemp)"
   trap 'rm -f "$OVERRIDE_TMP"' EXIT HUP INT TERM
@@ -237,7 +237,8 @@ configure_ollama_loopback() {
   trap - EXIT HUP INT TERM
 
   systemctl daemon-reload
-  systemctl enable --now ollama.service
+  systemctl enable ollama.service
+  systemctl restart ollama.service
 
   ATTEMPT=0
   until curl --fail --silent --show-error http://127.0.0.1:11434/api/tags >/dev/null; do
@@ -252,10 +253,27 @@ configure_ollama_loopback() {
   echo "Ollama is running on 127.0.0.1:11434 with a $CONTEXT_LENGTH-token context."
 }
 
+restart_ollama() {
+  require_pi_arm64
+  systemctl restart ollama.service
+  ATTEMPT=0
+  until curl --fail --silent --show-error http://127.0.0.1:11434/api/tags >/dev/null; do
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ "$ATTEMPT" -ge 30 ]; then
+      echo "Ollama did not become ready after restart." >&2
+      systemctl status --no-pager ollama.service || true
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "Ollama restarted and is ready on 127.0.0.1:11434."
+}
+
 case "$ACTION" in
   prepare-system) prepare_system ;;
   install-ollama-arm64) install_ollama_arm64 ;;
   configure-ollama-loopback) configure_ollama_loopback ;;
+  restart-ollama) restart_ollama ;;
   *)
     echo "Action is not allowlisted: $ACTION" >&2
     exit 64

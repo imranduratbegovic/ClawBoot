@@ -12,8 +12,8 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
     "OLLAMA_NO_CLOUD=1",
     "OLLAMA_MAX_LOADED_MODELS=1",
     "OLLAMA_NUM_PARALLEL=1",
-    "CONTEXT_LENGTH=16384",
     "CONTEXT_LENGTH=8192",
+    "CONTEXT_LENGTH=4096",
   ]) {
     assert.equal(helper.includes(setting), true, `missing ${setting}`);
   }
@@ -28,6 +28,8 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(helper, /--retry 10 --retry-delay 3 --retry-all-errors/);
   assert.match(helper, /CLAWBOOT_DOWNLOAD ollama/);
   assert.match(helper, /partial download was saved; Retry will continue/);
+  assert.match(helper, /restart-ollama\) restart_ollama/);
+  assert.match(helper, /systemctl restart ollama\.service/);
   assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);
   assert.match(helper, /dpkg --configure -a/);
   assert.match(helper, /--fix-broken install -y/);
