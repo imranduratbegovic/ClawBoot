@@ -19,6 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
+const CURRENT_SECURITY_BASELINE = 1;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -198,6 +199,15 @@ export function parseDownloadProgress(line) {
 
 function parseCommandJson(output) {
   const text = String(output ?? "").trim();
+  for (const line of text.split(/\r?\n/).reverse()) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{") && !candidate.startsWith("[")) continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Fall through to the multi-line form below.
+    }
+  }
   for (const opener of ["{", "["]) {
     const start = text.indexOf(opener);
     if (start === -1) continue;
@@ -450,9 +460,14 @@ export async function createSetupService(options = {}) {
         demo: true,
       };
     }
+    const gatewayToken = store.snapshot().secrets.gatewayToken;
+    const context =
+      typeof gatewayToken === "string" && gatewayToken.length >= 24
+        ? { signal, gatewayToken, secrets: [gatewayToken] }
+        : { signal };
     const result = jobId
-      ? await runAction(jobId, "openclawGatewayStatus", { signal })
-      : await runner.run("openclawGatewayStatus", { signal });
+      ? await runAction(jobId, "openclawGatewayStatus", context)
+      : await runner.run("openclawGatewayStatus", context);
     return {
       ok: result.code === 0,
       gateway: `http://127.0.0.1:${GATEWAY_PORT}`,
@@ -509,6 +524,9 @@ export async function createSetupService(options = {}) {
         invalidated.add("onboard");
         invalidated.add("verify");
         state.installation.agentConfigured = false;
+      }
+      if (state.installation.securityBaseline < CURRENT_SECURITY_BASELINE) {
+        invalidated.add("verify");
       }
       state.installation.completedSteps = state.installation.completedSteps.filter(
         (stepId) => !invalidated.has(stepId),
@@ -749,9 +767,32 @@ export async function createSetupService(options = {}) {
       await markInstallation(jobId, { agentConfigured: true, permissionProfile });
     },
     async verify({ jobId, signal }) {
+      const gatewayToken = store.snapshot().secrets.gatewayToken;
+      const gatewayContext =
+        typeof gatewayToken === "string" && gatewayToken.length >= 24
+          ? { signal, gatewayToken, secrets: [gatewayToken] }
+          : { signal };
+      await runAction(jobId, "disableCloudMemorySearch", { signal });
+      await runAction(jobId, "denySmallModelWebTools", { signal });
+      await runAction(jobId, "disableElevatedTools", { signal });
+      await runAction(jobId, "validateOpenClawConfig", { signal });
+      await runAction(jobId, "gatewayRestart", { signal });
       await runAction(jobId, "openclawDoctorFix", { signal });
       await runAction(jobId, "openclawSecurityFix", { signal });
-      await runAction(jobId, "openclawSecurityDeep", { signal });
+      const security = await runAction(jobId, "openclawSecurityDeep", gatewayContext);
+      const securityReport = parseCommandJson(security.stdout);
+      const critical = Number(securityReport?.summary?.critical);
+      if (!Number.isFinite(critical)) {
+        throw new Error("OpenClaw returned an unreadable security audit result.");
+      }
+      if (critical > 0) {
+        throw new Error(`OpenClaw security audit still reports ${critical} critical finding${critical === 1 ? "" : "s"}.`);
+      }
+      await emit(jobId, {
+        type: "log",
+        source: "setup",
+        message: "OpenClaw security audit passed with no critical findings.",
+      });
       const model = await verifyModel({ signal, exercise: true });
       if (!model.ok) throw new Error(model.reason ?? "The local model did not answer its health check.");
       await emit(jobId, {
@@ -761,7 +802,10 @@ export async function createSetupService(options = {}) {
       });
       const agent = await verifyAgent({ signal, jobId });
       if (!agent.ok) throw new Error("The OpenClaw gateway health check failed.");
-      await markInstallation(jobId, { gatewayRunning: true });
+      await markInstallation(jobId, {
+        gatewayRunning: true,
+        securityBaseline: CURRENT_SECURITY_BASELINE,
+      });
     },
   };
 
@@ -892,7 +936,8 @@ export async function createSetupService(options = {}) {
       current.installation.modelInstalled &&
       current.installation.openclawInstalled &&
       current.installation.agentConfigured &&
-      current.installation.gatewayRunning;
+      current.installation.gatewayRunning &&
+      current.installation.securityBaseline >= CURRENT_SECURITY_BASELINE;
     const lastJob = current.jobs[current.installation.lastJobId];
     if (fullyInstalled && lastJob?.status === "complete") {
       return { job: lastJob, reused: true, complete: true };

@@ -55,6 +55,11 @@ async function actionSpec(action, config, context) {
   const sudo = await executable(["/usr/bin/sudo", "/bin/sudo"]);
   const helper = config.helperPath;
   const channel = ["telegram", "whatsapp"].includes(context.channel) ? context.channel : null;
+  const gatewayToken =
+    typeof context.gatewayToken === "string" && context.gatewayToken.length >= 24
+      ? context.gatewayToken
+      : null;
+  const gatewaySecrets = gatewayToken ? [gatewayToken] : [];
 
   switch (action) {
     case "prepareSystem":
@@ -168,9 +173,44 @@ async function actionSpec(action, config, context) {
     case "openclawGatewayStatus":
       return {
         command: await openclawExecutable(config),
-        args: ["gateway", "status", "--require-rpc", "--json"],
+        args: [
+          "gateway",
+          "status",
+          "--require-rpc",
+          "--json",
+          ...(gatewayToken ? ["--token", gatewayToken] : []),
+        ],
         env,
         timeoutMs: 45_000,
+        secrets: gatewaySecrets,
+      };
+    case "disableCloudMemorySearch":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "denySmallModelWebTools":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "disableElevatedTools":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.elevated.enabled", "false", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "validateOpenClawConfig":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "validate", "--json"],
+        env,
+        timeoutMs: 30_000,
       };
     case "openclawDoctorFix":
       return {
@@ -189,9 +229,16 @@ async function actionSpec(action, config, context) {
     case "openclawSecurityDeep":
       return {
         command: await openclawExecutable(config),
-        args: ["security", "audit", "--deep", "--json"],
+        args: [
+          "security",
+          "audit",
+          "--deep",
+          "--json",
+          ...(gatewayToken ? ["--token", gatewayToken] : []),
+        ],
         env,
         timeoutMs: 5 * 60_000,
+        secrets: gatewaySecrets,
       };
     case "permissionChat":
       return {
@@ -496,6 +543,10 @@ const DEMO_LINES = {
     "OpenClaw service installed",
   ],
   openclawGatewayStatus: ['{"service":{"running":true},"rpc":{"ok":true}}'],
+  disableCloudMemorySearch: ["Disabled cloud-backed memory search"],
+  denySmallModelWebTools: ["Denied web and browser tools for the local small model"],
+  disableElevatedTools: ["Disabled elevated tools"],
+  validateOpenClawConfig: ['{"valid":true}'],
   openclawDoctorFix: ["OpenClaw doctor applied safe noninteractive repairs"],
   openclawSecurityFix: ['{"fix":{"ok":true},"report":{"summary":{"critical":0}}}'],
   openclawSecurityDeep: ['{"summary":{"critical":0,"warning":1,"info":2}}'],

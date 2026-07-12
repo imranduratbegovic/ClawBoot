@@ -20,6 +20,7 @@ export function initialState(mode = "demo") {
       openclawInstalled: false,
       agentConfigured: false,
       gatewayRunning: false,
+      securityBaseline: 0,
       completedAt: null,
     },
     channels: {

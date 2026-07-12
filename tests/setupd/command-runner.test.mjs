@@ -65,6 +65,10 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
   await runner.run("openclawSecurityFix");
   await runner.run("openclawSecurityDeep");
   await runner.run("openclawGatewayStatus");
+  await runner.run("disableCloudMemorySearch");
+  await runner.run("denySmallModelWebTools");
+  await runner.run("disableElevatedTools");
+  await runner.run("validateOpenClawConfig");
 
   assert.deepEqual(calls[0].args, ["pull", "gemma4:e2b-it-qat"]);
   assert.deepEqual(calls[1].args.slice(-3), ["--no-prompt", "--no-onboard", "--verify"]);
@@ -72,7 +76,36 @@ test("fixed install actions use the requested Gemma tag and noninteractive OpenC
   assert.deepEqual(calls[3].args, ["security", "audit", "--fix", "--json"]);
   assert.deepEqual(calls[4].args, ["security", "audit", "--deep", "--json"]);
   assert.deepEqual(calls[5].args, ["gateway", "status", "--require-rpc", "--json"]);
+  assert.deepEqual(calls[6].args, ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[7].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
+  assert.deepEqual(calls[8].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[9].args, ["config", "validate", "--json"]);
   assert.equal(calls.every((call) => call.options.shell === false), true);
+});
+
+test("gateway checks use the generated token without exposing it", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gateway-token-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const token = "gateway-token-that-must-never-leak-456";
+  const calls = [];
+  const lines = [];
+  const config = makeConfig({
+    stateDir: directory,
+    home: directory,
+    downloadsDir: path.join(directory, "downloads"),
+    npmPrefix: path.join(directory, "npm"),
+  });
+  const runner = new CommandRunner({ config, spawnImpl: fakeSpawner(calls, `token=${token}\n`) });
+  await runner.prepare();
+
+  for (const action of ["openclawGatewayStatus", "openclawSecurityDeep"]) {
+    await runner.run(action, { gatewayToken: token, onLine: ({ line }) => lines.push(line) });
+  }
+
+  assert.deepEqual(calls[0].args.slice(-2), ["--token", token]);
+  assert.deepEqual(calls[1].args.slice(-2), ["--token", token]);
+  assert.doesNotMatch(lines.join("\n"), new RegExp(token));
+  assert.match(lines.join("\n"), /\[REDACTED\]/);
 });
 
 test("runner strips generated gateway tokens before emitting command output", async (t) => {

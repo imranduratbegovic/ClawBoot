@@ -75,11 +75,13 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   assert.match(events, /"type":"step"/);
   assert.match(events, /"status":"complete"/);
   assert.match(events, /gemma4:e2b-it-qat/);
+  assert.match(events, /security audit passed with no critical findings/);
 
   const statusResponse = await fetch(`${base}/api/v1/status`);
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
+  assert.equal(status.installation.securityBaseline, 1);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);
