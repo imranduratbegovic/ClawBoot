@@ -9,6 +9,6 @@ Full Pi mode is root-equivalent, and installing this `.deb` is the permission gr
 SHA-256:
 
 ```text
-c07d68acd275fdffd925c88b5187fdc99717b2c54d1ed6d1f3233b1bdc317676  clawboot_1.2.0_arm64.deb
-c07d68acd275fdffd925c88b5187fdc99717b2c54d1ed6d1f3233b1bdc317676  clawboot_arm64.deb
+7000dea1c6ad80916dfe5c073412197a0742a7e9e8a9c743a7bc3bb3c4d7240d  clawboot_1.2.0_arm64.deb
+7000dea1c6ad80916dfe5c073412197a0742a7e9e8a9c743a7bc3bb3c4d7240d  clawboot_arm64.deb
 ```

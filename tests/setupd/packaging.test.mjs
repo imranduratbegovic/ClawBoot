@@ -143,6 +143,9 @@ test("desktop package uses only Pi-standard base dependencies and self-heals", a
   assert.doesNotMatch(launcher, /python|WebKit|import gi/);
   assert.match(builder, /NODE_SHA256/);
   assert.match(builder, /linux-arm64/);
+  assert.match(builder, /VINEXT_DEPLOYMENT_ID/);
+  assert.match(builder, /assets\/_vinext_fonts/);
+  assert.match(builder, /Expected one vinext deployment id/);
   assert.match(builder, /opt\/clawboot\/VERSION.*write_bytes/);
   assert.match(builder, /\("preinst", "postinst", "prerm", "postrm"\)/);
   assert.match(builder, /replace\(b"\\r\\n", b"\\n"\)/);

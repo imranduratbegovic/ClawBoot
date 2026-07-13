@@ -9,6 +9,7 @@ import hashlib
 import io
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import tarfile
 import tempfile
@@ -23,6 +24,7 @@ NODE_SHA256 = "58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
 # A fixed fallback makes local builds reproducible even when the caller does
 # not provide the standard reproducible-builds timestamp.
 DEFAULT_SOURCE_DATE_EPOCH = 946684800  # 2000-01-01T00:00:00Z
+VINEXT_DEPLOYMENT_ID = b"c1a0b007-0000-4000-8000-000000000120"
 TEXT_ASSET_SUFFIXES = {
     ".css",
     ".html",
@@ -77,9 +79,37 @@ def copy_tree(source: Path, target: Path) -> None:
             raise RuntimeError(f"Unsupported staged file type: {child}")
 
 
+def normalize_vinext_output(client: Path) -> None:
+    # vinext may download an unreferenced font cache on one host but not
+    # another. ClawBoot uses system DejaVu/Noto fonts, so never package it.
+    shutil.rmtree(client / "assets/_vinext_fonts", ignore_errors=True)
+
+    patterns = (
+        re.compile(rb'("deploymentVersion":")[0-9a-fA-F-]{36}(")'),
+        re.compile(rb'(\\"deploymentVersion\\":\\")[0-9a-fA-F-]{36}(\\")'),
+    )
+    for name in ("index.html", "index.rsc"):
+        path = client / name
+        body = path.read_bytes()
+        replacements = 0
+        for pattern in patterns:
+            body, count = pattern.subn(
+                lambda match: match.group(1) + VINEXT_DEPLOYMENT_ID + match.group(2),
+                body,
+            )
+            replacements += count
+        if replacements != 1:
+            raise RuntimeError(
+                f"Expected one vinext deployment id in {path}, found {replacements}."
+            )
+        path.write_bytes(body)
+
+
 def prepare_data_tree(root: Path, stage: Path) -> None:
     copy_tree(root / "setupd", stage / "opt/clawboot/setupd")
-    copy_tree(root / "dist/client", stage / "opt/clawboot/dist/client")
+    client = stage / "opt/clawboot/dist/client"
+    copy_tree(root / "dist/client", client)
+    normalize_vinext_output(client)
     (stage / "opt/clawboot/VERSION").write_bytes(f"{PACKAGE_VERSION}\n".encode("ascii"))
     copy_script(root / "packaging/clawboot-service", stage / "opt/clawboot/bin/clawboot-service")
     copy_script(root / "packaging/clawboot-repair", stage / "opt/clawboot/bin/clawboot-repair")
