@@ -97,6 +97,14 @@ jobs:
           python3 scripts/build-deb.py --output "$BUILT_PACKAGE_TWO"
           cmp "$BUILT_PACKAGE_ONE" "$BUILT_PACKAGE_TWO"
 
+      - name: Preserve native ARM64 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: clawboot-${{ env.CLAWBOOT_VERSION }}-native-arm64
+          path: ${{ env.BUILT_PACKAGE_ONE }}
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Prove checked-in release was built from HEAD
         shell: bash
         run: |
