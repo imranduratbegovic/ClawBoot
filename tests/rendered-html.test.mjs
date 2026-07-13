@@ -31,7 +31,8 @@ test("wires the wizard to the real resumable setup service", async () => {
   ]);
 
   assert.match(page, /qwen3\.5:2b/);
-  assert.match(page, /APP_VERSION = "1\.1\.2"/);
+  assert.match(page, /qwen3\.5:4b/);
+  assert.match(page, /APP_VERSION = "1\.2\.0"/);
   assert.match(page, /background service is/);
   assert.match(page, /api\/v1\/status/);
   assert.match(page, /activeJobId/);
@@ -39,8 +40,13 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(page, /api\/v1\/channels\/telegram/);
   assert.match(page, /api\/v1\/channels\/whatsapp\/login/);
   assert.match(page, /api\/v1\/channels\/pairings\/approve/);
-  assert.match(page, /No terminal or extra password prompt/);
-  assert.match(page, /About 4\.2 GB total/);
+  assert.match(page, /Full Pi assistant/);
+  assert.match(page, /uses sudo/);
+  assert.match(page, /About 4\.2 GB/);
+  assert.match(page, /About 4\.9 GB/);
+  assert.match(page, /qrDataUrl/);
+  assert.match(page, /className="qr-image"/);
+  assert.doesNotMatch(page, /qrLines/);
   assert.match(page, /Interrupted downloads resume instead of restarting/);
   assert.match(page, /download-progress/);
   assert.match(page, /FAILURE DIAGNOSIS/);
@@ -49,6 +55,8 @@ test("wires the wizard to the real resumable setup service", async () => {
   assert.match(css, /--red:\s*#bd1e3e/i);
   assert.match(packageJson, /"name": "clawboot"/);
   assert.match(service, /text\/event-stream/);
+  assert.match(service, /CURRENT_SECURITY_BASELINE = 10/);
+  assert.match(service, /verifyAgentRoot/);
   assert.match(launcher, /--app="\$SETUP_ORIGIN\/\?v=\$EXPECTED_VERSION"/);
   assert.match(launcher, /firefox-esr firefox/);
   assert.doesNotMatch(launcher, /python|WebKit|import gi/);

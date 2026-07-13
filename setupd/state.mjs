@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { MODEL_ID } from "./config.mjs";
+import { DEFAULT_MODEL_ID, QR_DATA_URL_MAX_LENGTH, modelSpec } from "./config.mjs";
 
 const MAX_EVENTS_PER_JOB = 600;
+const PERMISSION_PROFILES = new Set(["open"]);
 
 export function initialState(mode = "demo") {
   const now = new Date().toISOString();
@@ -12,8 +13,8 @@ export function initialState(mode = "demo") {
     phase: "ready",
     activeJobId: null,
     installation: {
-      model: MODEL_ID,
-      permissionProfile: "guarded",
+      model: DEFAULT_MODEL_ID,
+      permissionProfile: "open",
       completedSteps: [],
       ollamaInstalled: false,
       modelInstalled: false,
@@ -21,6 +22,7 @@ export function initialState(mode = "demo") {
       agentConfigured: false,
       gatewayRunning: false,
       securityBaseline: 0,
+      fullAccessConsentVersion: 0,
       completedAt: null,
     },
     channels: {
@@ -32,7 +34,7 @@ export function initialState(mode = "demo") {
       whatsapp: {
         status: "not_configured",
         account: null,
-        qrLines: [],
+        qrDataUrl: null,
         error: null,
       },
     },
@@ -47,14 +49,27 @@ function normalizeState(value, mode) {
   const base = initialState(mode);
   if (!value || value.schemaVersion !== 1 || typeof value !== "object") return base;
 
+  const installation = { ...base.installation, ...(value.installation ?? {}) };
+  if (!modelSpec(installation.model)) installation.model = DEFAULT_MODEL_ID;
+  if (!PERMISSION_PROFILES.has(installation.permissionProfile)) installation.permissionProfile = "open";
+  const whatsapp = { ...base.channels.whatsapp, ...(value.channels?.whatsapp ?? {}) };
+  delete whatsapp.qrLines;
+  if (
+    typeof whatsapp.qrDataUrl !== "string" ||
+    whatsapp.qrDataUrl.length > QR_DATA_URL_MAX_LENGTH ||
+    !/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(whatsapp.qrDataUrl)
+  ) {
+    whatsapp.qrDataUrl = null;
+  }
+
   return {
     ...base,
     ...value,
     mode,
-    installation: { ...base.installation, ...(value.installation ?? {}) },
+    installation,
     channels: {
       telegram: { ...base.channels.telegram, ...(value.channels?.telegram ?? {}) },
-      whatsapp: { ...base.channels.whatsapp, ...(value.channels?.whatsapp ?? {}) },
+      whatsapp,
     },
     jobs: value.jobs && typeof value.jobs === "object" ? value.jobs : {},
     secrets: value.secrets && typeof value.secrets === "object" ? value.secrets : {},

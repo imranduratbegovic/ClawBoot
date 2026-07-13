@@ -16,6 +16,14 @@ case "${1:-}" in
       }
     fi
 
+    # Installing this root-authorized package is the permission grant for the
+    # Full Pi product. The loopback setup API can verify, but cannot create,
+    # this root capability.
+    /usr/local/libexec/clawboot-helper enable-agent-root || {
+      warn "ClawBoot could not enable the Full Pi permission rule."
+      exit 1
+    }
+
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
     ;;

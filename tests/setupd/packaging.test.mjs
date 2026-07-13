@@ -3,11 +3,12 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 test("Ollama service is loopback-only and capped for Raspberry Pi memory", async () => {
-  const [helper, runner, sudoers, service] = await Promise.all([
+  const [helper, runner, sudoers, service, postrm] = await Promise.all([
     fs.readFile(new URL("../../packaging/clawboot-helper", import.meta.url), "utf8"),
     fs.readFile(new URL("../../setupd/command-runner.mjs", import.meta.url), "utf8"),
     fs.readFile(new URL("../../packaging/clawboot.sudoers", import.meta.url), "utf8"),
     fs.readFile(new URL("../../setupd/service.mjs", import.meta.url), "utf8"),
+    fs.readFile(new URL("../../packaging/debian/postrm", import.meta.url), "utf8"),
   ]);
   for (const setting of [
     "OLLAMA_HOST=127.0.0.1:11434",
@@ -42,9 +43,19 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(helper, /ensure-ollama-runtime\) ensure_ollama_runtime/);
   assert.match(helper, /restart-ollama\) restart_ollama/);
   assert.match(helper, /systemctl restart ollama\.service/);
-  for (const action of ["prepare-system", "install-ollama-arm64", "ensure-ollama-runtime", "configure-ollama-loopback", "restart-ollama"]) {
+  for (const action of ["prepare-system", "install-ollama-arm64", "ensure-ollama-runtime", "configure-ollama-loopback", "restart-ollama", "ensure-chromium"]) {
     assert.match(sudoers, new RegExp(`^openclaw ALL=\\(root\\) NOPASSWD: /usr/local/libexec/clawboot-helper ${action}$`, "m"));
   }
+  assert.doesNotMatch(sudoers, /(?:enable|disable)-agent-root/);
+  assert.match(helper, /ensure_chromium\(\)/);
+  assert.match(helper, /\/usr\/bin\/chromium \/usr\/bin\/chromium-browser/);
+  assert.match(helper, /\/usr\/local\/bin\/clawboot-chromium/);
+  assert.match(helper, /openclaw ALL=\(ALL:ALL\) NOPASSWD: ALL/);
+  assert.match(helper, /visudo -cf/);
+  assert.doesNotMatch(helper, /disable-agent-root/);
+  assert.match(postrm, /remove\|purge\|disappear\|abort-install[\s\S]*rm -f \/etc\/sudoers\.d\/clawboot-agent-full-access/);
+  assert.match(postrm, /upgrade\|failed-upgrade\|abort-upgrade[\s\S]*Keep Full Pi access across package upgrades/);
+  assert.match(runner, /noSandbox:\s*false/);
   assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);
   assert.match(service, /async verify\(\{ jobId, signal \}\)[\s\S]*runAction\(jobId, "ensureOllamaRuntime"[\s\S]*runAction\(jobId, "configureOllamaLoopback"/);
   assert.match(service, /runner\.run\("ollamaRuntimeStatus"[\s\S]*ollamaInstalled = false/);
@@ -55,9 +66,38 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(helper, /--fix-broken install -y/);
 });
 
-test("headless install instructions forward the setup and gateway ports", async () => {
+test("retired source installer refuses to mutate the system", async () => {
   const installer = await fs.readFile(new URL("../../scripts/install.sh", import.meta.url), "utf8");
-  assert.match(installer, /-L 3210:127\.0\.0\.1:3210 -L 18789:127\.0\.0\.1:18789/);
+  assert.match(installer, /retired, contributor-facing guard/);
+  assert.match(installer, /does not install/);
+  assert.match(installer, /clawboot_1\.2\.0_arm64\.deb/);
+  assert.match(installer, /exit 64/);
+  assert.doesNotMatch(installer, /\b(?:apt-get|systemctl|sudo|install -[dom])\b/);
+});
+
+test("AppStream discloses model choices and Full Pi privileges", async () => {
+  const metainfo = await fs.readFile(new URL("../../packaging/io.openclaw.ClawBoot.metainfo.xml", import.meta.url), "utf8");
+  assert.match(metainfo, /Qwen 3\.5 2B or 4B/);
+  assert.match(metainfo, /WhatsApp QR linking/);
+  assert.match(metainfo, /Full Pi assistant profile is intentionally root-equivalent/);
+  assert.match(metainfo, /passwordless sudo/);
+});
+
+test("package removal stops managed services without disrupting upgrades", async () => {
+  const [prerm, postrm] = await Promise.all([
+    fs.readFile(new URL("../../packaging/debian/prerm", import.meta.url), "utf8"),
+    fs.readFile(new URL("../../packaging/debian/postrm", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(prerm, /remove\|deconfigure\)[\s\S]*disable --now clawboot\.service/);
+  assert.match(prerm, /systemctl --user disable --now openclaw-gateway\.service/);
+  assert.match(prerm, /rm -f \/var\/lib\/openclaw\/\.config\/systemd\/user\/default\.target\.wants\/openclaw-gateway\.service/);
+  assert.match(prerm, /loginctl disable-linger/);
+  assert.match(prerm, /systemctl stop "user@\$\{SERVICE_UID\}\.service"/);
+  assert.match(prerm, /disable --now ollama\.service/);
+  assert.match(prerm, /upgrade\|failed-upgrade\)[\s\S]*replacement package/);
+  assert.match(postrm, /if \[ "\$\{1:-\}" = purge \][\s\S]*rm -rf \/var\/lib\/clawboot/);
+  assert.match(postrm, /ordinary removal intentionally keeps resumable state/);
 });
 
 test("desktop package uses only Pi-standard base dependencies and self-heals", async () => {
@@ -74,10 +114,12 @@ test("desktop package uses only Pi-standard base dependencies and self-heals", a
   ]);
 
   assert.match(control, /^Architecture: arm64$/m);
+  assert.match(control, /grants the OpenClaw service account passwordless[\s\S]*root access/);
   assert.match(control, /^Depends: sudo, systemd, libc6, libstdc\+\+6, libgcc-s1$/m);
   assert.doesNotMatch(control, /^Pre-Depends:/m);
   assert.match(preinst, /systemctl stop clawboot\.service/);
   assert.match(postinst, /clawboot-repair/);
+  assert.match(postinst, /clawboot-helper enable-agent-root/);
   assert.match(postinst, /case "\$\{1:-\}" in/);
   assert.match(postinst, /configure\)/);
   assert.match(postinst, /retrying once/);

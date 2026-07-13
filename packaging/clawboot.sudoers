@@ -5,3 +5,4 @@ openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper install-ollama-
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper ensure-ollama-runtime
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper configure-ollama-loopback
 openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper restart-ollama
+openclaw ALL=(root) NOPASSWD: /usr/local/libexec/clawboot-helper ensure-chromium

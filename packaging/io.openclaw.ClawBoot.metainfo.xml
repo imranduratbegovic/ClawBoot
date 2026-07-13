@@ -3,11 +3,13 @@
   <id>io.openclaw.ClawBoot</id>
   <name>ClawBoot</name>
   <developer_name>Imran Duratbegovic</developer_name>
-  <summary>Set up OpenClaw and a local Qwen model on Raspberry Pi 5</summary>
+  <summary>Set up a local Qwen-powered whole-Pi OpenClaw assistant</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
-    <p>A simple setup wizard for installing Ollama, Qwen 3.5 2B, OpenClaw, Telegram, and WhatsApp without using the command line.</p>
+    <p>A graphical Raspberry Pi 5 setup wizard for installing OpenClaw with a fully local Qwen 3.5 2B or 4B model through Ollama.</p>
+    <p>It configures web search, page reading, an isolated Chromium browser, Telegram, and live WhatsApp QR linking without requiring terminal commands.</p>
+    <p>The Full Pi assistant profile is intentionally root-equivalent: it gives the OpenClaw service account host-wide file access, unrestricted command execution, and passwordless sudo. Only pair accounts you trust.</p>
   </description>
   <launchable type="desktop-id">io.openclaw.ClawBoot.desktop</launchable>
   <provides><binary>clawboot</binary></provides>

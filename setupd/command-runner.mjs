@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { GATEWAY_PORT, MODEL_ID, OLLAMA_BASE_URL } from "./config.mjs";
+import { GATEWAY_PORT, MODEL_ID, OLLAMA_BASE_URL, OPENCLAW_VERSION, QR_DATA_URL_MAX_LENGTH, modelSpec } from "./config.mjs";
 import { createSanitizer } from "./security.mjs";
 
 const MAX_CAPTURE_BYTES = 512 * 1024;
@@ -35,6 +35,31 @@ async function openclawExecutable(config) {
   ]);
 }
 
+function selectedModel(context) {
+  const selected = modelSpec(context.model ?? MODEL_ID);
+  if (!selected) throw new Error("The selected local model is not supported by ClawBoot.");
+  return selected;
+}
+
+function validatedToolList(value) {
+  if (
+    !Array.isArray(value) ||
+    value.length > 64 ||
+    value.some((entry) => typeof entry !== "string" || !/^[A-Za-z0-9_*:./-]{1,80}$/.test(entry))
+  ) {
+    throw new Error("The OpenClaw tool policy contains an invalid tool list.");
+  }
+  return JSON.stringify([...new Set(value)]);
+}
+
+function validQrDataUrl(value) {
+  return (
+    typeof value === "string" &&
+    value.length <= QR_DATA_URL_MAX_LENGTH &&
+    /^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(value)
+  );
+}
+
 function baseEnvironment(config) {
   return {
     HOME: config.home,
@@ -60,6 +85,7 @@ async function actionSpec(action, config, context) {
       ? context.gatewayToken
       : null;
   const gatewaySecrets = gatewayToken ? [gatewayToken] : [];
+  const model = selectedModel(context);
 
   switch (action) {
     case "prepareSystem":
@@ -107,31 +133,23 @@ async function actionSpec(action, config, context) {
     case "pullModel":
       return {
         command: await executable(["/usr/bin/ollama", "/usr/local/bin/ollama"]),
-        args: ["pull", MODEL_ID],
+        args: ["pull", model.id],
         env,
         timeoutMs: 90 * 60_000,
       };
-    case "downloadOpenClawInstaller":
-      return {
-        command: await executable(["/usr/bin/curl", "/usr/local/bin/curl"]),
-        args: [
-          "--fail",
-          "--show-error",
-          "--location",
-          "--proto",
-          "=https",
-          "--tlsv1.2",
-          "--output",
-          config.openclawInstaller,
-          "https://openclaw.ai/install.sh",
-        ],
-        env,
-        timeoutMs: 2 * 60_000,
-      };
     case "installOpenClaw":
       return {
-        command: "/bin/bash",
-        args: [config.openclawInstaller, "--no-prompt", "--no-onboard", "--verify"],
+        command: await executable([path.join(config.runtimeBin, "npm")]),
+        args: [
+          "install",
+          "--global",
+          "--prefix",
+          config.npmPrefix,
+          "--no-audit",
+          "--no-fund",
+          "--loglevel=warn",
+          `openclaw@${OPENCLAW_VERSION}`,
+        ],
         env,
         timeoutMs: 30 * 60_000,
       };
@@ -166,7 +184,7 @@ async function actionSpec(action, config, context) {
           "--custom-base-url",
           OLLAMA_BASE_URL,
           "--custom-model-id",
-          MODEL_ID,
+          model.id,
           "--gateway-port",
           "18789",
           "--gateway-bind",
@@ -216,7 +234,7 @@ async function actionSpec(action, config, context) {
     case "configurePrimaryModel":
       return {
         command: await openclawExecutable(config),
-        args: ["config", "set", "agents.defaults.model.primary", JSON.stringify(`ollama/${MODEL_ID}`), "--strict-json"],
+        args: ["config", "set", "agents.defaults.model.primary", JSON.stringify(`ollama/${model.id}`), "--strict-json"],
         env,
         timeoutMs: 30_000,
       };
@@ -228,8 +246,8 @@ async function actionSpec(action, config, context) {
           "set",
           "agents.defaults.models",
           JSON.stringify({
-            [`ollama/${MODEL_ID}`]: {
-              params: { thinking: false, num_ctx: 4096, keep_alive: "10m" },
+            [`ollama/${model.id}`]: {
+              params: model.params,
             },
           }),
           "--strict-json",
@@ -238,10 +256,179 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 30_000,
       };
-    case "denySmallModelWebTools":
+    case "readToolsAllow":
       return {
         command: await openclawExecutable(config),
-        args: ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"],
+        args: ["config", "get", "tools.allow", "--json"],
+        env,
+        timeoutMs: 30_000,
+        sensitiveOutput: true,
+      };
+    case "readToolsAlsoAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "get", "tools.alsoAllow", "--json"],
+        env,
+        timeoutMs: 30_000,
+        sensitiveOutput: true,
+      };
+    case "readToolsDeny":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "get", "tools.deny", "--json"],
+        env,
+        timeoutMs: 30_000,
+        sensitiveOutput: true,
+      };
+    case "readPluginsAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "get", "plugins.allow", "--json"],
+        env,
+        timeoutMs: 30_000,
+        sensitiveOutput: true,
+      };
+    case "readPluginsDeny":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "get", "plugins.deny", "--json"],
+        env,
+        timeoutMs: 30_000,
+        sensitiveOutput: true,
+      };
+    case "setPluginsAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "plugins.allow", validatedToolList(context.tools), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "setPluginsDeny":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "plugins.deny", validatedToolList(context.tools), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "setToolsAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.allow", validatedToolList(context.tools), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "unsetToolsAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "unset", "tools.allow"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "setToolsAlsoAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.alsoAllow", validatedToolList(context.tools), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "unsetToolsAlsoAllow":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "unset", "tools.alsoAllow"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "setToolsDeny":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.deny", validatedToolList(context.tools), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "enableDuckDuckGo":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "plugins.entries.duckduckgo.enabled", "true", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "configureWebSearch":
+      return {
+        command: await openclawExecutable(config),
+        args: [
+          "config",
+          "set",
+          "tools.web.search",
+          JSON.stringify({ enabled: true, provider: "duckduckgo", maxResults: 5, timeoutSeconds: 30, cacheTtlMinutes: 15 }),
+          "--strict-json",
+        ],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "configureWebFetch":
+      return {
+        command: await openclawExecutable(config),
+        args: [
+          "config",
+          "set",
+          "tools.web.fetch",
+          JSON.stringify({
+            enabled: true,
+            maxChars: 8000,
+            maxCharsCap: 8000,
+            maxResponseBytes: 750000,
+            timeoutSeconds: 30,
+            cacheTtlMinutes: 15,
+            maxRedirects: 3,
+            readability: true,
+          }),
+          "--strict-json",
+        ],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "ensureChromium":
+      return {
+        command: sudo,
+        args: ["-n", helper, "ensure-chromium"],
+        env,
+        timeoutMs: 30 * 60_000,
+      };
+    case "enableBrowserPlugin":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "plugins.entries.browser.enabled", "true", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "configureBrowser":
+      return {
+        command: await openclawExecutable(config),
+        args: [
+          "config",
+          "set",
+          "browser",
+          JSON.stringify({
+            enabled: true,
+            defaultProfile: "openclaw",
+            headless: true,
+            noSandbox: false,
+            evaluateEnabled: false,
+            ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
+            executablePath: "/usr/local/bin/clawboot-chromium",
+            localLaunchTimeoutMs: 30000,
+            localCdpReadyTimeoutMs: 20000,
+            actionTimeoutMs: 90000,
+          }),
+          "--strict-json",
+        ],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "disableBrowser":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "browser.enabled", "false", "--strict-json"],
         env,
         timeoutMs: 30_000,
       };
@@ -301,31 +488,73 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 30_000,
       };
-    case "permissionGuardedFilesystem":
-      return {
-        command: await openclawExecutable(config),
-        args: ["config", "set", "tools.fs.workspaceOnly", "true"],
-        env,
-        timeoutMs: 30_000,
-      };
-    case "permissionGuardedExecAsk":
-      return {
-        command: await openclawExecutable(config),
-        args: ["config", "set", "tools.exec.ask", "always"],
-        env,
-        timeoutMs: 30_000,
-      };
-    case "permissionGuardedExecSecurity":
-      return {
-        command: await openclawExecutable(config),
-        args: ["config", "set", "tools.exec.security", "allowlist"],
-        env,
-        timeoutMs: 30_000,
-      };
     case "permissionOpen":
       return {
         command: await openclawExecutable(config),
         args: ["config", "set", "tools.profile", "full"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionFilesystemRestricted":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.fs.workspaceOnly", "true", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionFilesystemFull":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.fs.workspaceOnly", "false", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionApplyPatchRestricted":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.exec.applyPatch.workspaceOnly", "true", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionApplyPatchFull":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "tools.exec.applyPatch.workspaceOnly", "false", "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionSandboxOff":
+      return {
+        command: await openclawExecutable(config),
+        args: ["config", "set", "agents.defaults.sandbox.mode", "off"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionExecDeny":
+      return {
+        command: await openclawExecutable(config),
+        args: ["exec-policy", "preset", "deny-all"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionExecCautious":
+      return {
+        command: await openclawExecutable(config),
+        args: ["exec-policy", "preset", "cautious"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "permissionExecYolo":
+      return {
+        command: await openclawExecutable(config),
+        args: ["exec-policy", "preset", "yolo"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "verifyAgentRoot":
+      return {
+        command: sudo,
+        args: ["-n", "/usr/bin/true"],
         env,
         timeoutMs: 30_000,
       };
@@ -357,9 +586,16 @@ async function actionSpec(action, config, context) {
     case "whatsappPluginInstall":
       return {
         command: await openclawExecutable(config),
-        args: ["plugins", "install", "clawhub:@openclaw/whatsapp"],
+        args: ["plugins", "install", `clawhub:@openclaw/whatsapp@${OPENCLAW_VERSION}`, "--force"],
         env,
         timeoutMs: 10 * 60_000,
+      };
+    case "whatsappPluginEnable":
+      return {
+        command: await openclawExecutable(config),
+        args: ["plugins", "enable", "whatsapp"],
+        env,
+        timeoutMs: 2 * 60_000,
       };
     case "pluginList":
       return {
@@ -382,13 +618,57 @@ async function actionSpec(action, config, context) {
         env,
         timeoutMs: 30_000,
       };
-    case "whatsappLogin":
+    case "whatsappLoginStart": {
+      if (!gatewayToken) throw new Error("A gateway token is required to start WhatsApp linking.");
       return {
         command: await openclawExecutable(config),
-        args: ["channels", "login", "--channel", "whatsapp"],
-        env: { ...env, TERM: "xterm-256color" },
-        timeoutMs: 5 * 60_000,
+        args: [
+          "gateway",
+          "call",
+          "web.login.start",
+          "--params",
+          JSON.stringify({ timeoutMs: 30000 }),
+          "--url",
+          `ws://127.0.0.1:${GATEWAY_PORT}`,
+          "--token",
+          gatewayToken,
+          "--timeout",
+          "45000",
+          "--json",
+        ],
+        env,
+        timeoutMs: 50_000,
+        secrets: gatewaySecrets,
+        sensitiveOutput: true,
       };
+    }
+    case "whatsappLoginWait": {
+      if (!gatewayToken) throw new Error("A gateway token is required while WhatsApp is linking.");
+      if (!validQrDataUrl(context.currentQrDataUrl)) {
+        throw new Error("The current WhatsApp QR image is invalid.");
+      }
+      return {
+        command: await openclawExecutable(config),
+        args: [
+          "gateway",
+          "call",
+          "web.login.wait",
+          "--params",
+          JSON.stringify({ timeoutMs: 20000, currentQrDataUrl: context.currentQrDataUrl }),
+          "--url",
+          `ws://127.0.0.1:${GATEWAY_PORT}`,
+          "--token",
+          gatewayToken,
+          "--timeout",
+          "30000",
+          "--json",
+        ],
+        env,
+        timeoutMs: 35_000,
+        secrets: [...gatewaySecrets, context.currentQrDataUrl],
+        sensitiveOutput: true,
+      };
+    }
     case "gatewayRestart":
       return {
         command: await openclawExecutable(config),
@@ -463,6 +743,8 @@ export class CommandRunner {
         if (source === "stdout") stdout = (stdout + raw).slice(-MAX_CAPTURE_BYTES);
         else stderr = (stderr + raw).slice(-MAX_CAPTURE_BYTES);
 
+        if (spec.sensitiveOutput) return;
+
         buffers[source] += raw;
         const lines = buffers[source].split(/[\r\n]+/);
         buffers[source] = lines.pop() ?? "";
@@ -508,11 +790,13 @@ export class CommandRunner {
       });
 
       child.once("close", (code, signal) => {
-        for (const source of ["stdout", "stderr"]) {
-          const clean = sanitize(
-            context.preserveWhitespace ? buffers[source].replace(/\s+$/, "") : buffers[source].trim(),
-          );
-          if (clean) context.onLine?.({ source, line: clean });
+        if (!spec.sensitiveOutput) {
+          for (const source of ["stdout", "stderr"]) {
+            const clean = sanitize(
+              context.preserveWhitespace ? buffers[source].replace(/\s+$/, "") : buffers[source].trim(),
+            );
+            if (clean) context.onLine?.({ source, line: clean });
+          }
         }
         if (settled) return;
         settled = true;
@@ -525,7 +809,7 @@ export class CommandRunner {
           return;
         }
         if (code !== 0) {
-          const detail = sanitize(stderr || stdout).trim().slice(-2_000);
+          const detail = spec.sensitiveOutput ? "" : sanitize(stderr || stdout).trim().slice(-2_000);
           const error = new Error(
             `Allowlisted action ${action} failed (${signal ? `signal ${signal}` : `exit ${code}`})${detail ? `: ${detail}` : ""}`,
           );
@@ -537,8 +821,8 @@ export class CommandRunner {
         }
         resolve({
           code,
-          stdout: sanitize(stdout),
-          stderr: sanitize(stderr),
+          stdout: spec.sensitiveOutput ? stdout : sanitize(stdout),
+          stderr: spec.sensitiveOutput ? "" : sanitize(stderr),
         });
       });
     });
@@ -560,6 +844,9 @@ function wait(ms, signal) {
   });
 }
 
+const DEMO_QR_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
 const DEMO_LINES = {
   prepareSystem: ["Checking Raspberry Pi OS packages", "System prerequisites are ready"],
   installOllamaArm64: [
@@ -573,6 +860,7 @@ const DEMO_LINES = {
   ensureOllamaRuntime: ["Ollama runtime and llama-server are complete"],
   configureOllamaLoopback: ["Ollama enabled on 127.0.0.1:11434"],
   restartOllama: ["Ollama restarted and is ready on 127.0.0.1:11434"],
+  ensureChromium: ["Chromium is ready at /usr/local/bin/clawboot-chromium"],
   ollamaVersion: ["ollama version 0.11.0"],
   ollamaRuntimeStatus: ["Ollama llama-server runtime is present"],
   pullModel: [
@@ -583,9 +871,8 @@ const DEMO_LINES = {
     "verifying sha256 digest",
     "success",
   ],
-  downloadOpenClawInstaller: ["Downloaded the official OpenClaw installer"],
   installOpenClaw: ["Installing OpenClaw without terminal onboarding", "OpenClaw installed"],
-  openclawVersion: ["OpenClaw 2026.7.0"],
+  openclawVersion: ["OpenClaw 2026.6.11"],
   onboardOpenClaw: [
     "Configured Ollama provider at http://127.0.0.1:11434",
     `Selected ollama/${MODEL_ID}`,
@@ -596,33 +883,49 @@ const DEMO_LINES = {
   disableCloudMemorySearch: ["Disabled cloud-backed memory search"],
   configurePrimaryModel: [`Selected ollama/${MODEL_ID} as the primary model`],
   configureLocalModelDefaults: [`Disabled hidden thinking and capped context for ollama/${MODEL_ID}`],
-  denySmallModelWebTools: ["Denied web and browser tools for the local small model"],
+  readToolsAllow: ["[]"],
+  readToolsAlsoAllow: ["[]"],
+  readToolsDeny: ['["group:web","browser"]'],
+  readPluginsAllow: ['["telegram"]'],
+  readPluginsDeny: ['["duckduckgo","browser","unrelated-plugin"]'],
+  setPluginsAllow: ["Preserved existing plugins and enabled required assistant plugins"],
+  setPluginsDeny: ["Removed required assistant plugins from the plugin deny list"],
+  setToolsAllow: ["Updated the OpenClaw tool allowlist"],
+  unsetToolsAllow: ["Removed the explicit OpenClaw tool allowlist"],
+  setToolsAlsoAllow: ["Added the selected assistant tools"],
+  unsetToolsAlsoAllow: ["Removed the additive OpenClaw tool list"],
+  setToolsDeny: ["Updated the OpenClaw tool deny list"],
+  enableDuckDuckGo: ["Enabled key-free DuckDuckGo web search"],
+  configureWebSearch: ["Configured web search"],
+  configureWebFetch: ["Configured web page reading"],
+  enableBrowserPlugin: ["Enabled the OpenClaw browser plugin"],
+  configureBrowser: ["Configured isolated Chromium automation"],
+  disableBrowser: ["Disabled Chromium automation"],
   disableElevatedTools: ["Disabled elevated tools"],
   validateOpenClawConfig: ['{"valid":true}'],
   openclawDoctorFix: ["OpenClaw doctor applied safe noninteractive repairs"],
   openclawSecurityFix: ['{"fix":{"ok":true},"report":{"summary":{"critical":0}}}'],
-  openclawSecurityDeep: ['{"summary":{"critical":0,"warning":1,"info":2}}'],
+  openclawSecurityDeep: ['{"summary":{"critical":1,"warning":1,"info":2},"findings":[{"checkId":"models.small_params","severity":"critical"}]}'],
   permissionChat: ["Applied chat-only messaging tool profile"],
   permissionGuardedProfile: ["Applied guarded coding tool profile"],
-  permissionGuardedFilesystem: ["Restricted filesystem tools to the agent workspace"],
-  permissionGuardedExecAsk: ["Configured command approval for every execution"],
-  permissionGuardedExecSecurity: ["Restricted command execution to the allowlist"],
-  permissionOpen: ["Applied unrestricted tool profile"],
+  permissionOpen: ["Applied the full Pi assistant tool profile"],
+  permissionFilesystemRestricted: ["Restricted filesystem tools to the agent workspace"],
+  permissionFilesystemFull: ["Enabled host-wide filesystem tools"],
+  permissionApplyPatchRestricted: ["Restricted patching to the agent workspace"],
+  permissionApplyPatchFull: ["Enabled patching outside the agent workspace"],
+  permissionSandboxOff: ["Configured commands to run on the Raspberry Pi host"],
+  permissionExecDeny: ["Disabled command execution"],
+  permissionExecCautious: ["Configured command approvals"],
+  permissionExecYolo: ["Configured no-prompt host command execution"],
+  verifyAgentRoot: ["Verified passwordless sudo for the Full Pi assistant"],
   telegramAdd: ["Telegram bot configured"],
   telegramDmPairing: ["Telegram direct messages require pairing"],
   telegramGroupsDisabled: ["Telegram groups disabled by default"],
   whatsappPluginInstall: ["Installed the official OpenClaw WhatsApp plugin"],
+  whatsappPluginEnable: ["Enabled the official OpenClaw WhatsApp plugin"],
   pluginList: ['{"plugins":[]}'],
   whatsappDmPairing: ["WhatsApp direct messages require pairing"],
   whatsappGroupsDisabled: ["WhatsApp groups disabled by default"],
-  whatsappLogin: [
-    "██████████████████████",
-    "██ ▄▄▄▄▄ █▀█ ▄▄▄▄▄ ██",
-    "██ █   █ █▄█ █   █ ██",
-    "██ █▄▄▄█ ▄▀▄ █▄▄▄█ ██",
-    "██▄▄▄▄▄▄▄█▄█▄▄▄▄▄▄▄██",
-    "WhatsApp account linked",
-  ],
   gatewayRestart: ["OpenClaw gateway restarted"],
   channelStatus: ['{"configured":true,"running":true,"probe":{"works":true}}'],
   pairingList: ['{"requests":[]}'],
@@ -632,12 +935,29 @@ const DEMO_LINES = {
 export class DemoCommandRunner {
   constructor({ config }) {
     this.config = config;
+    this.whatsappWaits = 0;
   }
 
   async prepare() {}
 
   async run(action, context = {}) {
-    const lines = DEMO_LINES[action];
+    const model = selectedModel(context);
+    let lines = DEMO_LINES[action];
+    if (action === "pullModel") lines = [`pulling manifest for ${model.id}`, ...DEMO_LINES.pullModel.slice(1)];
+    if (action === "onboardOpenClaw") {
+      lines = [DEMO_LINES.onboardOpenClaw[0], `Selected ollama/${model.id}`, ...DEMO_LINES.onboardOpenClaw.slice(2)];
+    }
+    if (action === "configurePrimaryModel") lines = [`Selected ollama/${model.id} as the primary model`];
+    if (action === "configureLocalModelDefaults") {
+      lines = [`Disabled hidden thinking and capped context for ollama/${model.id}`];
+    }
+    if (action === "whatsappLoginStart") {
+      lines = [JSON.stringify({ qrDataUrl: DEMO_QR_DATA_URL, message: "Scan this QR in WhatsApp linked devices." })];
+    }
+    if (action === "whatsappLoginWait") {
+      this.whatsappWaits += 1;
+      lines = [JSON.stringify({ connected: true, message: "WhatsApp is linked." })];
+    }
     if (!lines) throw new Error(`Command action is not allowlisted: ${action}`);
     for (const line of lines) {
       await wait(this.config.demoDelayMs, context.signal);

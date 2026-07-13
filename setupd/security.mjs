@@ -18,6 +18,7 @@ export function createSanitizer(secrets = []) {
   return (input) => {
     let output = String(input ?? "")
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+      .replace(/data:image\/png;base64,[A-Za-z0-9+/=]+/g, "[REDACTED_QR_IMAGE]")
       .slice(0, 8_000);
 
     for (const value of known) {
@@ -40,4 +41,3 @@ export function publicState(state) {
   delete clone.secrets;
   return clone;
 }
-

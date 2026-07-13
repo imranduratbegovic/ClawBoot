@@ -3,33 +3,37 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { CommandCancelledError, CommandRunner, DemoCommandRunner } from "./command-runner.mjs";
-import { GATEWAY_PORT, makeConfig, MODEL_ID, OLLAMA_BASE_URL, SERVICE_VERSION } from "./config.mjs";
+import {
+  DEFAULT_MODEL_ID,
+  GATEWAY_PORT,
+  makeConfig,
+  MODEL_CATALOG,
+  OLLAMA_BASE_URL,
+  OPENCLAW_VERSION,
+  QR_DATA_URL_MAX_LENGTH,
+  SERVICE_VERSION,
+  modelSpec,
+} from "./config.mjs";
 import { inspectHost, runtimeMode } from "./preflight.mjs";
 import { createSanitizer, makeSecret, publicState } from "./security.mjs";
 import { appendJobEvent, StateStore } from "./state.mjs";
 
-const STEP_DEFINITIONS = [
-  { id: "preflight", title: "Check your Raspberry Pi" },
-  { id: "system", title: "Prepare the operating system" },
-  { id: "ollama", title: "Install Ollama for ARM64" },
-  { id: "model", title: `Download ${MODEL_ID}` },
-  { id: "openclaw", title: "Install OpenClaw" },
-  { id: "onboard", title: "Configure your local agent" },
-  { id: "verify", title: "Run final checks" },
-];
+function stepDefinitions(modelId = DEFAULT_MODEL_ID) {
+  const model = modelSpec(modelId) ?? modelSpec(DEFAULT_MODEL_ID);
+  return [
+    { id: "preflight", title: "Check your Raspberry Pi" },
+    { id: "system", title: "Prepare the operating system" },
+    { id: "ollama", title: "Install Ollama for ARM64" },
+    { id: "model", title: `Download ${model.label}` },
+    { id: "openclaw", title: "Install OpenClaw" },
+    { id: "onboard", title: "Configure your local agent" },
+    { id: "verify", title: "Enable and test assistant tools" },
+  ];
+}
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 9;
-const PERMISSION_ACTIONS = {
-  chat: ["permissionChat"],
-  guarded: [
-    "permissionGuardedProfile",
-    "permissionGuardedFilesystem",
-    "permissionGuardedExecAsk",
-    "permissionGuardedExecSecurity",
-  ],
-  open: ["permissionOpen"],
-};
+const CURRENT_SECURITY_BASELINE = 10;
+const PERMISSION_PROFILES = new Set(["open"]);
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -163,13 +167,26 @@ async function fetchJson(url, options = {}, timeoutMs = 10_000) {
   }
 }
 
-function modelIsPresent(tags) {
+function modelIsPresent(tags, modelId) {
   return Boolean(
     tags?.models?.some((model) => {
       const name = model?.name ?? model?.model;
-      return name === MODEL_ID || name === `${MODEL_ID}:latest`;
+      return name === modelId || name === `${modelId}:latest`;
     }),
   );
+}
+
+function openClawVersionIsSupported(output) {
+  const installed = String(output ?? "").match(/\b(\d{4})\.(\d+)\.(\d+)\b/);
+  const required = OPENCLAW_VERSION.match(/^(\d{4})\.(\d+)\.(\d+)$/);
+  if (!installed || !required) return false;
+  for (let index = 1; index <= 3; index += 1) {
+    const actualPart = Number(installed[index]);
+    const requiredPart = Number(required[index]);
+    if (actualPart > requiredPart) return true;
+    if (actualPart < requiredPart) return false;
+  }
+  return true;
 }
 
 function sseWrite(response, event) {
@@ -253,7 +270,7 @@ export function diagnoseSetupFailure(error, step = null) {
     return {
       ...diagnosis,
       code: "PRIVILEGE_RULE_MISSING",
-      problem: "ClawBoot's restricted system-helper permission is missing or outdated.",
+      problem: "ClawBoot's fixed system-helper permission is missing or outdated.",
       reason: `${technical} ClawBoot does not need or store your desktop password.`,
       nextAction: "Install the latest ClawBoot package over this version, reopen it, and press Retry.",
     };
@@ -326,6 +343,60 @@ function parseCommandJson(output) {
   return null;
 }
 
+export function assessSecurityAudit(report) {
+  const critical = Number(report?.summary?.critical);
+  const warnings = Number(report?.summary?.warn ?? report?.summary?.warning ?? 0);
+  if (!Number.isFinite(critical) || critical < 0) {
+    throw new Error("OpenClaw returned an unreadable security audit result.");
+  }
+  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  const criticalFindings = findings.filter((finding) => String(finding?.severity ?? "").toLowerCase() === "critical");
+  const acceptedSmallModel = criticalFindings.filter((finding) => finding?.checkId === "models.small_params");
+  const blocking = criticalFindings.filter((finding) => finding?.checkId !== "models.small_params");
+  if (critical > 0 && (blocking.length > 0 || acceptedSmallModel.length !== critical)) {
+    const ids = blocking.map((finding) => String(finding?.checkId ?? "unknown")).join(", ");
+    throw new Error(`OpenClaw security audit still reports ${critical} critical finding${critical === 1 ? "" : "s"}${ids ? ` (${ids})` : ""}.`);
+  }
+  return {
+    critical,
+    warnings: Number.isFinite(warnings) && warnings > 0 ? warnings : 0,
+    acceptedSmallModelCritical: acceptedSmallModel.length,
+  };
+}
+
+function whatsappPluginIsReady(output) {
+  const report = parseCommandJson(output);
+  const plugins = Array.isArray(report) ? report : Array.isArray(report?.plugins) ? report.plugins : [];
+  const plugin = plugins.find((entry) => {
+    const id = String(entry?.id ?? entry?.name ?? entry?.packageName ?? "").toLowerCase();
+    return id === "whatsapp" || id === "@openclaw/whatsapp";
+  });
+  if (!plugin) return false;
+  const status = String(plugin.status ?? plugin.state ?? "").toLowerCase();
+  return plugin.version === OPENCLAW_VERSION && plugin.enabled !== false && status !== "error" && status !== "failed";
+}
+
+function validatedQrDataUrl(value) {
+  if (
+    typeof value !== "string" ||
+    value.length > QR_DATA_URL_MAX_LENGTH ||
+    !/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(value)
+  ) {
+    throw new Error("OpenClaw returned an invalid WhatsApp QR image. Restart linking and try again.");
+  }
+  return value;
+}
+
+function toolList(value) {
+  return Array.isArray(value)
+    ? value.filter((entry) => typeof entry === "string" && /^[A-Za-z0-9_*:./-]{1,80}$/.test(entry))
+    : [];
+}
+
+function uniqueTools(values) {
+  return [...new Set(values)];
+}
+
 function normalizePairingRequests(value) {
   const source = Array.isArray(value)
     ? value
@@ -360,7 +431,7 @@ export async function createSetupService(options = {}) {
     if (["installing", "linking"].includes(state.channels?.whatsapp?.status)) {
       state.channels.whatsapp.status = "failed";
       state.channels.whatsapp.error = "WhatsApp linking was interrupted. Start it again to show a new QR code.";
-      state.channels.whatsapp.qrLines = [];
+      state.channels.whatsapp.qrDataUrl = null;
     }
     if (state.channels?.telegram?.status === "configuring") {
       state.channels.telegram.status = "failed";
@@ -433,6 +504,7 @@ export async function createSetupService(options = {}) {
           return;
         }
         if (action === "pullModel") {
+          const selected = modelSpec(context.model ?? store.snapshot().installation.model) ?? modelSpec(DEFAULT_MODEL_ID);
           const percentage = /(?:^|\s)(\d{1,3}(?:\.\d+)?)%/.exec(line);
           if (percentage) {
             const percent = Math.max(0, Math.min(100, Math.floor(Number(percentage[1]))));
@@ -444,7 +516,7 @@ export async function createSetupService(options = {}) {
                   type: "download",
                   stepId: "model",
                   kind: "model",
-                  label: "Qwen 3.5 2B model",
+                  label: `${selected.label} model`,
                   percent,
                   resumable: true,
                 }),
@@ -481,11 +553,13 @@ export async function createSetupService(options = {}) {
     return result;
   }
 
-  async function verifyModel({ signal, exercise = true } = {}) {
+  async function verifyModel({ signal, exercise = true, modelId = store.snapshot().installation.model } = {}) {
+    const selected = modelSpec(modelId);
+    if (!selected) throw new Error("The selected local model is not supported by ClawBoot.");
     if (mode === "demo") {
       return {
         ok: true,
-        model: MODEL_ID,
+        model: selected.id,
         provider: "ollama",
         baseUrl: OLLAMA_BASE_URL,
         latencyMs: 640,
@@ -498,19 +572,19 @@ export async function createSetupService(options = {}) {
 
     const started = Date.now();
     const tags = await fetchJson(`${OLLAMA_BASE_URL}/api/tags`, { signal }, 8_000);
-    if (!modelIsPresent(tags)) {
+    if (!modelIsPresent(tags, selected.id)) {
       return {
         ok: false,
-        model: MODEL_ID,
+        model: selected.id,
         provider: "ollama",
         baseUrl: OLLAMA_BASE_URL,
-        reason: `${MODEL_ID} is not present in Ollama.`,
+        reason: `${selected.id} is not present in Ollama.`,
       };
     }
     if (!exercise) {
       return {
         ok: true,
-        model: MODEL_ID,
+        model: selected.id,
         provider: "ollama",
         baseUrl: OLLAMA_BASE_URL,
         latencyMs: Date.now() - started,
@@ -523,11 +597,11 @@ export async function createSetupService(options = {}) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: MODEL_ID,
+          model: selected.id,
           prompt: "Reply with exactly READY.",
           think: false,
           stream: false,
-          keep_alive: "10m",
+          keep_alive: selected.params.keep_alive,
           options: { num_ctx: 2048, num_predict: 32, temperature: 0 },
         }),
         signal,
@@ -550,7 +624,7 @@ export async function createSetupService(options = {}) {
     const answered = Boolean(visibleResponse || thinkingResponse);
     return {
       ok: answered,
-      model: MODEL_ID,
+      model: selected.id,
       provider: "ollama",
       baseUrl: OLLAMA_BASE_URL,
       latencyMs: Date.now() - started,
@@ -591,8 +665,10 @@ export async function createSetupService(options = {}) {
     };
   }
 
-  async function reconcileInstalledState(signal) {
+  async function reconcileInstalledState(signal, modelId = store.snapshot().installation.model) {
     if (mode === "demo") return;
+    const selected = modelSpec(modelId);
+    if (!selected) throw new Error("The selected local model is not supported by ClawBoot.");
     let ollamaInstalled = false;
     let modelInstalled = false;
     let openclawInstalled = false;
@@ -610,11 +686,12 @@ export async function createSetupService(options = {}) {
     }
     if (ollamaInstalled) {
       try {
-        modelInstalled = (await verifyModel({ signal, exercise: false })).ok;
+        modelInstalled = (await verifyModel({ signal, exercise: false, modelId: selected.id })).ok;
       } catch {}
     }
     try {
-      openclawInstalled = (await runner.run("openclawVersion", { signal })).code === 0;
+      const version = await runner.run("openclawVersion", { signal });
+      openclawInstalled = version.code === 0 && openClawVersionIsSupported(version.stdout);
     } catch {}
     if (openclawInstalled) {
       try {
@@ -623,7 +700,6 @@ export async function createSetupService(options = {}) {
     }
 
     await store.update((state) => {
-      state.installation.model = MODEL_ID;
       state.installation.ollamaInstalled = ollamaInstalled;
       state.installation.modelInstalled = modelInstalled;
       state.installation.openclawInstalled = openclawInstalled;
@@ -733,39 +809,90 @@ export async function createSetupService(options = {}) {
 
   async function runWhatsAppLogin(controller) {
     try {
+      const gatewayToken = store.snapshot().secrets.gatewayToken;
+      if (typeof gatewayToken !== "string" || gatewayToken.length < 24) {
+        throw new Error("ClawBoot could not find the local gateway credential. Press Retry on the Install step first.");
+      }
+      const gatewayContext = {
+        signal: controller.signal,
+        gatewayToken,
+        secrets: [gatewayToken],
+      };
       const plugins = await runner.run("pluginList", { signal: controller.signal });
-      if (!/[@/]openclaw[/]whatsapp|@openclaw[/]whatsapp|\bwhatsapp\b/i.test(plugins.stdout)) {
+      if (!whatsappPluginIsReady(plugins.stdout)) {
         await runner.run("whatsappPluginInstall", { signal: controller.signal });
       }
+      await runner.run("whatsappPluginEnable", { signal: controller.signal });
       await runner.run("whatsappDmPairing", { signal: controller.signal });
       await runner.run("whatsappGroupsDisabled", { signal: controller.signal });
+      await runner.run("gatewayRestart", { signal: controller.signal });
+      await runner.run("openclawGatewayProbe", gatewayContext);
       await store.update((state) => {
         state.channels.whatsapp.status = "linking";
       });
-      await runner.run("whatsappLogin", {
-        signal: controller.signal,
-        preserveWhitespace: true,
-        onLine: ({ line }) => {
-          if (!/[█▀▄]/u.test(line)) return;
-          void store.update((state) => {
-            state.channels.whatsapp.qrLines.push(line);
-            state.channels.whatsapp.qrLines = state.channels.whatsapp.qrLines.slice(-64);
-          });
-        },
-      });
-      await runner.run("gatewayRestart", { signal: controller.signal });
+
+      const started = await runner.run("whatsappLoginStart", gatewayContext);
+      let login = parseCommandJson(started.stdout);
+      login = login?.payload ?? login?.result ?? login;
+      const startMessage = String(login?.message ?? "");
+      let connected =
+        login?.connected === true ||
+        /already linked|recovered (?:the )?existing linked session/i.test(startMessage);
+      let qrDataUrl = null;
+      if (!connected) {
+        if (!login?.qrDataUrl) {
+          throw new Error(
+            startMessage ||
+              "OpenClaw did not return a WhatsApp QR image. Select Show QR Code to try again.",
+          );
+        }
+        qrDataUrl = validatedQrDataUrl(login.qrDataUrl);
+      }
+      if (qrDataUrl) {
+        await store.update((state) => {
+          state.channels.whatsapp.qrDataUrl = qrDataUrl;
+        });
+      }
+
+      const deadline = Date.now() + 3 * 60_000;
+      while (!connected && Date.now() < deadline) {
+        const waited = await runner.run("whatsappLoginWait", {
+          ...gatewayContext,
+          currentQrDataUrl: qrDataUrl,
+          secrets: [gatewayToken, qrDataUrl],
+        });
+        let status = parseCommandJson(waited.stdout);
+        status = status?.payload ?? status?.result ?? status;
+        connected = status?.connected === true;
+        if (connected) break;
+        if (status?.qrDataUrl) {
+          const refreshed = validatedQrDataUrl(status.qrDataUrl);
+          if (refreshed !== qrDataUrl) {
+            qrDataUrl = refreshed;
+            await store.update((state) => {
+              state.channels.whatsapp.qrDataUrl = refreshed;
+            });
+          }
+        }
+        const message = String(status?.message ?? "");
+        if (/no active|expired|failed|logged out/i.test(message)) {
+          throw new Error(message || "The WhatsApp QR expired. Start linking again.");
+        }
+      }
+      if (!connected) throw new Error("The WhatsApp QR expired before it was scanned. Select Show QR Code to try again.");
+
       await runner.run("channelStatus", { channel: "whatsapp", signal: controller.signal });
       await store.update((state) => {
         state.channels.whatsapp.status = "connected";
         state.channels.whatsapp.account = "default";
-        state.channels.whatsapp.qrLines = [];
+        state.channels.whatsapp.qrDataUrl = null;
         state.channels.whatsapp.error = null;
       });
     } catch (error) {
       await store.update((state) => {
         state.channels.whatsapp.status = controller.signal.aborted ? "not_configured" : "failed";
         state.channels.whatsapp.error = controller.signal.aborted ? null : friendlyError(error);
-        state.channels.whatsapp.qrLines = [];
+        state.channels.whatsapp.qrDataUrl = null;
       });
     } finally {
       channelControllers.delete("whatsapp");
@@ -781,7 +908,7 @@ export async function createSetupService(options = {}) {
     }
     await store.update((state) => {
       state.channels.whatsapp.status = "installing";
-      state.channels.whatsapp.qrLines = [];
+      state.channels.whatsapp.qrDataUrl = null;
       state.channels.whatsapp.error = null;
     });
     const controller = new AbortController();
@@ -800,6 +927,125 @@ export async function createSetupService(options = {}) {
     assertAgentReady();
     await runner.run("pairingApprove", { channel, code });
     return { ok: true, channel, code };
+  }
+
+  async function readPolicyList(jobId, action, signal, modelId) {
+    try {
+      const result = await runAction(jobId, action, { signal, model: modelId });
+      const parsed = parseCommandJson(result.stdout);
+      return { present: true, values: toolList(parsed) };
+    } catch {
+      return { present: false, values: [] };
+    }
+  }
+
+  async function configureToolLists(jobId, signal, permissionProfile, modelId) {
+    const [allow, alsoAllow] = await Promise.all([
+      readPolicyList(jobId, "readToolsAllow", signal, modelId),
+      readPolicyList(jobId, "readToolsAlsoAllow", signal, modelId),
+    ]);
+
+    const required = permissionProfile === "chat"
+      ? ["group:messaging", "group:web"]
+      : ["group:fs", "group:runtime", "group:web", "group:sessions", "group:memory", "cron", "browser", "message"];
+    if (allow.present) {
+      if (alsoAllow.present) {
+        await runAction(jobId, "unsetToolsAlsoAllow", { signal, model: modelId });
+      }
+      await runAction(jobId, "setToolsAllow", {
+        signal,
+        model: modelId,
+        tools: uniqueTools([...allow.values, ...required]),
+      });
+    } else {
+      await runAction(jobId, "setToolsAlsoAllow", {
+        signal,
+        model: modelId,
+        tools: uniqueTools([...alsoAllow.values, ...required]),
+      });
+    }
+
+    // Full Pi is the only v1.2 mode. Legacy deny entries must not silently
+    // leave browsing, sessions, memory, cron, or computer control disabled.
+    await runAction(jobId, "setToolsDeny", {
+      signal,
+      model: modelId,
+      tools: [],
+    });
+  }
+
+  async function configurePluginLists(jobId, signal, permissionProfile, modelId) {
+    const [allow, deny] = await Promise.all([
+      readPolicyList(jobId, "readPluginsAllow", signal, modelId),
+      readPolicyList(jobId, "readPluginsDeny", signal, modelId),
+    ]);
+
+    const required = permissionProfile === "chat" ? ["duckduckgo"] : ["duckduckgo", "browser"];
+    if (allow.present) {
+      await runAction(jobId, "setPluginsAllow", {
+        signal,
+        model: modelId,
+        tools: uniqueTools([...allow.values, ...required]),
+      });
+    }
+    if (deny.present) {
+      await runAction(jobId, "setPluginsDeny", {
+        signal,
+        model: modelId,
+        tools: deny.values.filter((pluginId) => !required.includes(pluginId)),
+      });
+    }
+  }
+
+  async function writeAgentGuide() {
+    if (mode === "demo") return;
+    const workspace = path.join(config.home, ".openclaw", "workspace");
+    const guidePath = path.join(workspace, "TOOLS.md");
+    const startMarker = "<!-- CLAWBOOT MANAGED START -->";
+    const endMarker = "<!-- CLAWBOOT MANAGED END -->";
+    let existing = "";
+    try {
+      existing = await fs.readFile(guidePath, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const withoutManaged = existing
+      .replace(new RegExp(`${startMarker}[\\s\\S]*?${endMarker}\\s*`, "g"), "")
+      .trimEnd();
+    const access = "You may use host shell commands without approval, read or change files across the Pi, and use `sudo -n` for system administration. Confirm before destructive or irreversible work unless the owner explicitly asked for it.";
+    const managed = [
+      startMarker,
+      "## ClawBoot capabilities",
+      "",
+      "Use `web_search` for current news and sources, `web_fetch` to read pages, and the managed `browser` for interactive sites when it is available.",
+      "For news summaries, search current sources, include publication dates and links, and clearly separate reported facts from your own summary. Use scheduled tasks only after the owner confirms the timing and destination.",
+      "For IGCSE practice, you may research syllabus topics and sites such as Examable, then create original exam-style questions and mark schemes. Do not claim copied questions are original, bypass logins, or reproduce paywalled papers verbatim.",
+      access,
+      endMarker,
+      "",
+    ].join("\n");
+    await fs.mkdir(workspace, { recursive: true, mode: 0o700 });
+    await fs.writeFile(guidePath, `${withoutManaged ? `${withoutManaged}\n\n` : ""}${managed}`, { mode: 0o600 });
+  }
+
+  async function configureAssistantPolicy(jobId, signal, permissionProfile, modelId) {
+    await configurePluginLists(jobId, signal, permissionProfile, modelId);
+    await runAction(jobId, "enableDuckDuckGo", { signal, model: modelId });
+    await runAction(jobId, "configureWebSearch", { signal, model: modelId });
+    await runAction(jobId, "configureWebFetch", { signal, model: modelId });
+    await runAction(jobId, "permissionSandboxOff", { signal, model: modelId });
+
+    await runAction(jobId, "permissionOpen", { signal, model: modelId });
+    await runAction(jobId, "permissionFilesystemFull", { signal, model: modelId });
+    await runAction(jobId, "permissionApplyPatchFull", { signal, model: modelId });
+    await runAction(jobId, "permissionExecYolo", { signal, model: modelId });
+    await runAction(jobId, "ensureChromium", { signal, model: modelId });
+    await runAction(jobId, "enableBrowserPlugin", { signal, model: modelId });
+    await runAction(jobId, "configureBrowser", { signal, model: modelId });
+    await runAction(jobId, "verifyAgentRoot", { signal, model: modelId });
+    await configureToolLists(jobId, signal, permissionProfile, modelId);
+    await runAction(jobId, "disableElevatedTools", { signal, model: modelId });
+    await writeAgentGuide();
   }
 
   const stepRunners = {
@@ -840,21 +1086,21 @@ export async function createSetupService(options = {}) {
       await markInstallation(jobId, { ollamaInstalled: true });
     },
     async model({ jobId, signal }) {
+      const modelId = store.snapshot().jobs[jobId].model;
+      const selected = modelSpec(modelId);
       if (!store.snapshot().installation.modelInstalled) {
-        await runAction(jobId, "pullModel", { signal });
+        await runAction(jobId, "pullModel", { signal, model: modelId });
       } else {
         await emit(jobId, {
           type: "log",
           source: "setup",
-          message: `${MODEL_ID} is already downloaded; skipping the pull.`,
+          message: `${selected.label} is already downloaded; skipping the pull.`,
         });
       }
       await markInstallation(jobId, { modelInstalled: true });
     },
     async openclaw({ jobId, signal }) {
       if (!store.snapshot().installation.openclawInstalled) {
-        await runAction(jobId, "downloadOpenClawInstaller", { signal });
-        if (mode === "pi") await fs.chmod(config.openclawInstaller, 0o700);
         await runAction(jobId, "installOpenClaw", { signal });
       } else {
         await emit(jobId, {
@@ -863,9 +1109,14 @@ export async function createSetupService(options = {}) {
           message: "OpenClaw is already installed; keeping the existing installation.",
         });
       }
+      const installed = await runAction(jobId, "openclawVersion", { signal });
+      if (!openClawVersionIsSupported(installed.stdout)) {
+        throw new Error(`ClawBoot requires OpenClaw ${OPENCLAW_VERSION} or newer, but the installed version could not be verified.`);
+      }
       await markInstallation(jobId, { openclawInstalled: true });
     },
     async onboard({ jobId, signal }) {
+      const modelId = store.snapshot().jobs[jobId].model;
       if (!store.snapshot().installation.agentConfigured) {
         let gatewayToken;
         await store.update((state) => {
@@ -874,6 +1125,7 @@ export async function createSetupService(options = {}) {
         });
         await runAction(jobId, "onboardOpenClaw", {
           signal,
+          model: modelId,
           gatewayToken,
           secrets: [gatewayToken],
         });
@@ -884,47 +1136,43 @@ export async function createSetupService(options = {}) {
           message: "OpenClaw onboarding is already complete; keeping the existing configuration.",
         });
       }
-      const permissionProfile = store.snapshot().jobs[jobId].permissionProfile;
-      for (const action of PERMISSION_ACTIONS[permissionProfile]) {
-        await runAction(jobId, action, { signal });
-      }
-      await markInstallation(jobId, { agentConfigured: true, permissionProfile });
+      await markInstallation(jobId, { agentConfigured: true });
     },
     async verify({ jobId, signal }) {
+      const job = store.snapshot().jobs[jobId];
+      const modelId = job.model;
+      const permissionProfile = job.permissionProfile;
+      const selected = modelSpec(modelId);
       const gatewayToken = store.snapshot().secrets.gatewayToken;
       const gatewayContext =
         typeof gatewayToken === "string" && gatewayToken.length >= 24
-          ? { signal, gatewayToken, secrets: [gatewayToken] }
-          : { signal };
-      await runAction(jobId, "configurePrimaryModel", { signal });
-      await runAction(jobId, "configureLocalModelDefaults", { signal });
-      await runAction(jobId, "disableCloudMemorySearch", { signal });
-      await runAction(jobId, "denySmallModelWebTools", { signal });
-      await runAction(jobId, "disableElevatedTools", { signal });
-      await runAction(jobId, "validateOpenClawConfig", { signal });
+          ? { signal, model: modelId, gatewayToken, secrets: [gatewayToken] }
+          : { signal, model: modelId };
+      await runAction(jobId, "configurePrimaryModel", { signal, model: modelId });
+      await runAction(jobId, "configureLocalModelDefaults", { signal, model: modelId });
+      await runAction(jobId, "disableCloudMemorySearch", { signal, model: modelId });
+      await runAction(jobId, "validateOpenClawConfig", { signal, model: modelId });
       await runAction(jobId, "gatewayRestart", { signal });
-      await runAction(jobId, "openclawDoctorFix", { signal });
-      await runAction(jobId, "openclawSecurityFix", { signal });
+      await runAction(jobId, "openclawDoctorFix", { signal, model: modelId });
+      await runAction(jobId, "openclawSecurityFix", { signal, model: modelId });
+      await configureAssistantPolicy(jobId, signal, permissionProfile, modelId);
+      await runAction(jobId, "validateOpenClawConfig", { signal, model: modelId });
+      await runAction(jobId, "gatewayRestart", { signal, model: modelId });
       const security = await runAction(jobId, "openclawSecurityDeep", gatewayContext);
       const securityReport = parseCommandJson(security.stdout);
-      const critical = Number(securityReport?.summary?.critical);
-      const warnings = Number(securityReport?.summary?.warn ?? 0);
-      if (!Number.isFinite(critical)) {
-        throw new Error("OpenClaw returned an unreadable security audit result.");
-      }
-      if (critical > 0) {
-        throw new Error(`OpenClaw security audit still reports ${critical} critical finding${critical === 1 ? "" : "s"}.`);
-      }
+      const { warnings, acceptedSmallModelCritical } = assessSecurityAudit(securityReport);
       await emit(jobId, {
         type: "log",
         source: "setup",
-        message: `OpenClaw security audit passed with no critical findings${warnings > 0 ? `; ${warnings} non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`,
+        message: acceptedSmallModelCritical > 0
+          ? `OpenClaw reported its expected small-local-model tool risk as critical; the owner explicitly accepted this Full Pi risk${warnings > 0 ? `, and ${warnings} additional non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`
+          : `OpenClaw security audit passed with no critical findings${warnings > 0 ? `; ${warnings} non-blocking warning${warnings === 1 ? " remains" : "s remain"}` : ""}.`,
       });
       await runAction(jobId, "ensureOllamaRuntime", { signal });
       await runAction(jobId, "configureOllamaLoopback", { signal });
       let model;
       try {
-        model = await verifyModel({ signal, exercise: true });
+        model = await verifyModel({ signal, exercise: true, modelId });
       } catch (error) {
         if (!/127\.0\.0\.1:11434|localhost:11434/.test(String(error?.message ?? ""))) throw error;
         await emit(jobId, {
@@ -932,19 +1180,21 @@ export async function createSetupService(options = {}) {
           source: "setup",
           message: "The local model test failed once. Restarting Ollama and trying one more time.",
         });
-        await runAction(jobId, "restartOllama", { signal });
-        model = await verifyModel({ signal, exercise: true });
+        await runAction(jobId, "restartOllama", { signal, model: modelId });
+        model = await verifyModel({ signal, exercise: true, modelId });
       }
       if (!model.ok) throw new Error(model.reason ?? "The local model did not complete its inference health check.");
       await emit(jobId, {
         type: "log",
         source: "setup",
-        message: `${MODEL_ID} completed its local inference health check in ${model.latencyMs} ms.`,
+        message: `${selected.label} completed its local inference health check in ${model.latencyMs} ms.`,
       });
       const agent = await verifyAgent({ signal, jobId });
       if (!agent.ok) throw new Error("The OpenClaw gateway health check failed.");
       await markInstallation(jobId, {
         gatewayRunning: true,
+        model: modelId,
+        permissionProfile,
         securityBaseline: CURRENT_SECURITY_BASELINE,
       });
     },
@@ -952,7 +1202,9 @@ export async function createSetupService(options = {}) {
 
   async function runInstall(jobId, controller) {
     try {
-      await reconcileInstalledState(controller.signal);
+      const queuedJob = store.snapshot().jobs[jobId];
+      const definitions = stepDefinitions(queuedJob.model);
+      await reconcileInstalledState(controller.signal, queuedJob.model);
       await store.update((state) => {
         const job = state.jobs[jobId];
         job.status = "running";
@@ -964,8 +1216,8 @@ export async function createSetupService(options = {}) {
         message: mode === "demo" ? "Starting a safe demo installation." : "Starting installation.",
       });
 
-      for (let index = 0; index < STEP_DEFINITIONS.length; index += 1) {
-        const definition = STEP_DEFINITIONS[index];
+      for (let index = 0; index < definitions.length; index += 1) {
+        const definition = definitions[index];
         if (controller.signal.aborted) throw new CommandCancelledError();
 
         const alreadyCompleted = store.snapshot().installation.completedSteps.includes(definition.id);
@@ -1005,13 +1257,13 @@ export async function createSetupService(options = {}) {
           if (!state.installation.completedSteps.includes(definition.id)) {
             state.installation.completedSteps.push(definition.id);
           }
-          job.progress = Math.round(((index + 1) / STEP_DEFINITIONS.length) * 100);
+          job.progress = Math.round(((index + 1) / definitions.length) * 100);
         });
         await emit(jobId, {
           type: "step",
           stepId: definition.id,
           status: "complete",
-          progress: Math.round(((index + 1) / STEP_DEFINITIONS.length) * 100),
+          progress: Math.round(((index + 1) / definitions.length) * 100),
           message: `${definition.title} complete.`,
         });
       }
@@ -1070,24 +1322,61 @@ export async function createSetupService(options = {}) {
     }
   }
 
-  async function startInstall({ permissionProfile = "guarded" } = {}) {
-    if (!Object.hasOwn(PERMISSION_ACTIONS, permissionProfile)) {
-      const error = new Error("permissionProfile must be chat, guarded, or open.");
+  async function startInstall({ permissionProfile, model } = {}) {
+    const initial = store.snapshot();
+    permissionProfile ??= initial.installation.permissionProfile ?? "open";
+    model ??= initial.installation.model ?? DEFAULT_MODEL_ID;
+    if (!PERMISSION_PROFILES.has(permissionProfile)) {
+      const error = new Error("ClawBoot v1.2 supports only the open Full Pi permission profile.");
       error.statusCode = 400;
       throw error;
     }
-    let current = store.snapshot();
+    if (!modelSpec(model)) {
+      const error = new Error("model must be qwen3.5:2b or qwen3.5:4b.");
+      error.statusCode = 400;
+      throw error;
+    }
+    let current = initial;
     if (current.activeJobId) {
       const active = current.jobs[current.activeJobId];
       if (active && ["queued", "running", "cancelling"].includes(active.status)) {
+        if (active.permissionProfile !== permissionProfile || active.model !== model) {
+          const error = new Error("Another setup is already running with different choices. Wait for it to finish or cancel it first.");
+          error.statusCode = 409;
+          throw error;
+        }
         return { job: active, reused: true, complete: false };
       }
     }
 
-    await reconcileInstalledState();
+    await store.update((state) => {
+      const invalidated = new Set();
+      if (state.installation.model !== model) {
+        state.installation.model = model;
+        state.installation.modelInstalled = false;
+        invalidated.add("model");
+        invalidated.add("verify");
+      }
+      if (state.installation.permissionProfile !== permissionProfile) {
+        state.installation.permissionProfile = permissionProfile;
+        if (permissionProfile !== "open") state.installation.fullAccessConsentVersion = 0;
+        invalidated.add("verify");
+      }
+      if (state.installation.securityBaseline < CURRENT_SECURITY_BASELINE) invalidated.add("verify");
+      if (invalidated.size) {
+        state.installation.securityBaseline = 0;
+        state.installation.completedSteps = state.installation.completedSteps.filter(
+          (stepId) => !invalidated.has(stepId),
+        );
+      }
+    });
+
+    await reconcileInstalledState(undefined, model);
     current = store.snapshot();
 
     const fullyInstalled =
+      current.installation.model === model &&
+      current.installation.permissionProfile === permissionProfile &&
       current.installation.ollamaInstalled &&
       current.installation.modelInstalled &&
       current.installation.openclawInstalled &&
@@ -1104,7 +1393,7 @@ export async function createSetupService(options = {}) {
     let initialEvent;
     await store.update((state) => {
       const completed = new Set(state.installation.completedSteps);
-      const steps = STEP_DEFINITIONS.map((step) => ({
+      const steps = stepDefinitions(model).map((step) => ({
         ...step,
         status: completed.has(step.id) ? "complete" : "pending",
         startedAt: null,
@@ -1112,6 +1401,7 @@ export async function createSetupService(options = {}) {
       }));
       const job = {
         id: jobId,
+        model,
         permissionProfile,
         status: "queued",
         progress: Math.round((steps.filter((step) => step.status === "complete").length / steps.length) * 100),
@@ -1244,8 +1534,9 @@ export async function createSetupService(options = {}) {
           mode,
           demo: mode === "demo",
           canInstall: mode === "demo" || host.compatible,
-          model: MODEL_ID,
-          recommendation: "A Raspberry Pi 5 with 16 GB RAM and an SSD is recommended. The 8 GB model is experimental and slow.",
+          model: store.snapshot().installation.model,
+          models: Object.values(MODEL_CATALOG),
+          recommendation: "Qwen 3.5 2B is fastest on an 8 GB Pi. Qwen 3.5 4B is smarter but slower, especially while Chromium is open.",
           device: {
             platform: host.platform,
             architecture: host.architecture,
@@ -1328,28 +1619,47 @@ export async function createSetupService(options = {}) {
         const snapshot = store.snapshot();
         const installation = snapshot.installation;
         const previousJob = snapshot.jobs[installation.lastJobId];
+        const currentProfile = installation.permissionProfile ?? "open";
+        const permissionProfile = body.permissionProfile ?? currentProfile;
+        const selectedModel = body.model ?? installation.model ?? DEFAULT_MODEL_ID;
+        if (!PERMISSION_PROFILES.has(permissionProfile)) {
+          const error = new Error("ClawBoot v1.2 supports only the open Full Pi permission profile.");
+          error.statusCode = 400;
+          throw error;
+        }
+        if (!modelSpec(selectedModel)) {
+          const error = new Error("model must be qwen3.5:2b or qwen3.5:4b.");
+          error.statusCode = 400;
+          throw error;
+        }
         const continuingExistingSetup =
           installation.completedSteps.length > 0 ||
           ["failed", "interrupted", "cancelled"].includes(previousJob?.status);
-        if (mode === "pi" && body.riskAccepted !== true && !continuingExistingSetup) {
+        const enablingFullAccess = permissionProfile === "open" && currentProfile !== "open";
+        const needsFullAccessConsent =
+          permissionProfile === "open" && Number(installation.fullAccessConsentVersion ?? 0) < 1;
+        if (
+          mode === "pi" &&
+          body.riskAccepted !== true &&
+          (!continuingExistingSetup || enablingFullAccess || needsFullAccessConsent)
+        ) {
           const error = new Error("You must explicitly accept the OpenClaw local-agent risk notice before installation.");
           error.statusCode = 422;
           throw error;
         }
-        const currentProfile = store.snapshot().installation.permissionProfile ?? "guarded";
-        const permissionProfile = body.permissionProfile ?? currentProfile;
-        if (!Object.hasOwn(PERMISSION_ACTIONS, permissionProfile)) {
-          const error = new Error("permissionProfile must be chat, guarded, or open.");
-          error.statusCode = 400;
-          throw error;
+        if (permissionProfile === "open" && body.riskAccepted === true) {
+          await store.update((state) => {
+            state.installation.fullAccessConsentVersion = 1;
+          });
         }
-        const result = await startInstall({ permissionProfile });
+        const result = await startInstall({ permissionProfile, model: selectedModel });
         json(response, result.complete ? 200 : 202, {
           jobId: result.job.id,
           status: result.job.status,
           reused: result.reused,
           complete: result.complete,
           mode,
+          model: result.job.model,
           permissionProfile: result.job.permissionProfile,
           eventsUrl: `/api/v1/jobs/${result.job.id}/events`,
           cancelUrl: `/api/v1/jobs/${result.job.id}/cancel`,

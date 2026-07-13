@@ -1,8 +1,40 @@
 #!/bin/sh
 set -eu
 
-if [ "${1:-}" = remove ] || [ "${1:-}" = deconfigure ]; then
-  systemctl disable --now clawboot.service >/dev/null 2>&1 || true
-fi
+stop_openclaw_user_services() {
+  SERVICE_USER=openclaw
+  if ! id "$SERVICE_USER" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  SERVICE_UID="$(id -u "$SERVICE_USER")"
+  RUNTIME_DIR="/run/user/$SERVICE_UID"
+  if [ -S "$RUNTIME_DIR/bus" ]; then
+    runuser -u "$SERVICE_USER" -- env \
+      XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus" \
+      systemctl --user disable --now openclaw-gateway.service >/dev/null 2>&1 || true
+  fi
+
+  # If the user manager was already down, remove systemd's standard enablement
+  # link directly. Keep the unit and OpenClaw configuration for reinstall.
+  rm -f /var/lib/openclaw/.config/systemd/user/default.target.wants/openclaw-gateway.service
+
+  # The gateway unit lives in the service account's user manager. Disable
+  # lingering and stop that manager so no gateway process survives removal.
+  loginctl disable-linger "$SERVICE_USER" >/dev/null 2>&1 || true
+  systemctl stop "user@${SERVICE_UID}.service" >/dev/null 2>&1 || true
+}
+
+case "${1:-}" in
+  remove|deconfigure)
+    systemctl disable --now clawboot.service >/dev/null 2>&1 || true
+    stop_openclaw_user_services
+    systemctl disable --now ollama.service >/dev/null 2>&1 || true
+    ;;
+  upgrade|failed-upgrade)
+    # Keep the local model and gateway available to the replacement package.
+    ;;
+esac
 
 exit 0

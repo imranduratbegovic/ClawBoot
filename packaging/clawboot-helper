@@ -333,12 +333,68 @@ restart_ollama() {
   echo "Ollama restarted and is ready on 127.0.0.1:11434."
 }
 
+ensure_chromium() {
+  require_pi_arm64
+  BROWSER_PATH=""
+  for candidate in /usr/bin/chromium /usr/bin/chromium-browser; do
+    if [ -x "$candidate" ]; then
+      BROWSER_PATH="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$BROWSER_PATH" ]; then
+    echo "Installing Chromium for OpenClaw's isolated browser profile."
+    ATTEMPT=1
+    while [ "$ATTEMPT" -le 3 ]; do
+      if apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=120 update && \
+        apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=120 install \
+          -y --no-install-recommends chromium; then
+        break
+      fi
+      echo "Chromium package attempt $ATTEMPT of 3 did not finish; repairing package state." >&2
+      dpkg --configure -a || true
+      apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=120 --fix-broken install -y || true
+      ATTEMPT=$((ATTEMPT + 1))
+    done
+    [ -x /usr/bin/chromium ] && BROWSER_PATH=/usr/bin/chromium
+  fi
+
+  if [ -z "$BROWSER_PATH" ]; then
+    echo "Chromium could not be installed from Raspberry Pi OS." >&2
+    echo "Update Raspberry Pi OS and press Retry in ClawBoot." >&2
+    exit 69
+  fi
+
+  ln -sfn "$BROWSER_PATH" /usr/local/bin/clawboot-chromium
+  chmod 0755 "$BROWSER_PATH"
+  echo "Chromium is ready at /usr/local/bin/clawboot-chromium."
+}
+
+enable_agent_root() {
+  RULE=/etc/sudoers.d/clawboot-agent-full-access
+  RULE_TMP="$(mktemp)"
+  trap 'rm -f "$RULE_TMP"' EXIT HUP INT TERM
+  printf '%s\n' \
+    '# Managed by ClawBoot. Removed when ClawBoot is uninstalled.' \
+    'Defaults:openclaw !requiretty' \
+    'openclaw ALL=(ALL:ALL) NOPASSWD: ALL' > "$RULE_TMP"
+  chmod 0440 "$RULE_TMP"
+  /usr/sbin/visudo -cf "$RULE_TMP" >/dev/null
+  install -o root -g root -m 0440 "$RULE_TMP" "$RULE"
+  rm -f "$RULE_TMP"
+  trap - EXIT HUP INT TERM
+  echo "Full Pi access enabled. The OpenClaw service account can use sudo without a password."
+}
+
 case "$ACTION" in
   prepare-system) prepare_system ;;
   install-ollama-arm64) install_ollama_arm64 ;;
   ensure-ollama-runtime) ensure_ollama_runtime ;;
   configure-ollama-loopback) configure_ollama_loopback ;;
   restart-ollama) restart_ollama ;;
+  ensure-chromium) ensure_chromium ;;
+  enable-agent-root) enable_agent_root ;;
   *)
     echo "Action is not allowlisted: $ACTION" >&2
     exit 64

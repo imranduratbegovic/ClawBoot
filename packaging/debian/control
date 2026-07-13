@@ -1,12 +1,14 @@
 Package: clawboot
-Version: 1.1.2
+Version: 1.2.0
 Section: utils
 Priority: optional
 Architecture: arm64
 Maintainer: Imran Duratbegovic <imranduratbegovicc@gmail.com>
 Depends: sudo, systemd, libc6, libstdc++6, libgcc-s1
-Description: Graphical OpenClaw setup for Raspberry Pi 5
- ClawBoot installs OpenClaw, a local Qwen 3.5 2B model, and optional
+Description: Root-equivalent OpenClaw assistant setup for Raspberry Pi 5
+ ClawBoot installs OpenClaw, a local Qwen 3.5 2B or 4B model, and optional
  Telegram or WhatsApp messaging through a simple desktop wizard.
+ Installing this package grants the OpenClaw service account passwordless
+ root access so it can operate the whole Raspberry Pi.
  The package bundles its application and browser-facing runtime and does not
  require optional GTK, WebKit, Python, or development packages.
