@@ -35,7 +35,7 @@ type FailureDiagnosis = {
 
 const MODEL_ID = "qwen3.5:2b";
 const APP_NAME = "ClawBoot";
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.1.2";
 const WIZARD_STEPS = ["System", "Model", "Access", "Review", "Install", "Messaging", "Done"];
 const EMPTY_CHANNELS: ChannelState = {
   telegram: { status: "not_configured", bot: null, error: null },
@@ -245,7 +245,7 @@ export default function Home() {
         setInstallProgress(Number(activeJob.progress ?? 0));
         goTo(4);
         connectToJob(String(status.activeJobId));
-      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 8) {
+      } else if (installation?.gatewayRunning === true && Number(installation?.securityBaseline ?? 0) < 9) {
         setInstallState("failed");
         setInstallProgress(Number(lastJob?.progress ?? 86));
         setInstallSteps(lastJob?.steps ? mapJobSteps(lastJob.steps) : DEFAULT_INSTALL_STEPS);

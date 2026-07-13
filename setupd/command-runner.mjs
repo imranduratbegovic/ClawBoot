@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { MODEL_ID, OLLAMA_BASE_URL } from "./config.mjs";
+import { GATEWAY_PORT, MODEL_ID, OLLAMA_BASE_URL } from "./config.mjs";
 import { createSanitizer } from "./security.mjs";
 
 const MAX_CAPTURE_BYTES = 512 * 1024;
@@ -191,13 +191,14 @@ async function actionSpec(action, config, context) {
         secrets: [context.gatewayToken],
       };
     }
-    case "openclawGatewayStatus":
+    case "openclawGatewayProbe":
       return {
         command: await openclawExecutable(config),
         args: [
           "gateway",
-          "status",
-          "--require-rpc",
+          "probe",
+          "--port",
+          String(GATEWAY_PORT),
           "--json",
           ...(gatewayToken ? ["--token", gatewayToken] : []),
         ],
@@ -216,6 +217,24 @@ async function actionSpec(action, config, context) {
       return {
         command: await openclawExecutable(config),
         args: ["config", "set", "agents.defaults.model.primary", JSON.stringify(`ollama/${MODEL_ID}`), "--strict-json"],
+        env,
+        timeoutMs: 30_000,
+      };
+    case "configureLocalModelDefaults":
+      return {
+        command: await openclawExecutable(config),
+        args: [
+          "config",
+          "set",
+          "agents.defaults.models",
+          JSON.stringify({
+            [`ollama/${MODEL_ID}`]: {
+              params: { thinking: false, num_ctx: 4096, keep_alive: "10m" },
+            },
+          }),
+          "--strict-json",
+          "--merge",
+        ],
         env,
         timeoutMs: 30_000,
       };
@@ -573,9 +592,10 @@ const DEMO_LINES = {
     "Gateway bound to loopback with token authentication",
     "OpenClaw service installed",
   ],
-  openclawGatewayStatus: ['{"service":{"running":true},"rpc":{"ok":true}}'],
+  openclawGatewayProbe: ['{"ok":true,"degraded":false,"capability":"read_only"}'],
   disableCloudMemorySearch: ["Disabled cloud-backed memory search"],
   configurePrimaryModel: [`Selected ollama/${MODEL_ID} as the primary model`],
+  configureLocalModelDefaults: [`Disabled hidden thinking and capped context for ollama/${MODEL_ID}`],
   denySmallModelWebTools: ["Denied web and browser tools for the local small model"],
   disableElevatedTools: ["Disabled elevated tools"],
   validateOpenClawConfig: ['{"valid":true}'],

@@ -107,7 +107,7 @@ test("demo API runs an idempotent install and streams progress over SSE", async 
   const status = await statusResponse.json();
   assert.equal(status.phase, "complete");
   assert.equal(status.installation.gatewayRunning, true);
-  assert.equal(status.installation.securityBaseline, 8);
+  assert.equal(status.installation.securityBaseline, 9);
   assert.equal(status.activeJobId, null);
 
   const idempotentResponse = await post(`${base}/api/v1/install`);
@@ -157,7 +157,9 @@ test("retry repairs a missing Ollama runtime even when the v1.0.10 Ollama step w
       }
       const stdout = action === "openclawSecurityDeep"
         ? '{"summary":{"critical":0,"warn":0,"info":0}}'
-        : "ok";
+        : action === "openclawGatewayProbe"
+          ? '{"ok":true,"degraded":true,"capability":"connected_no_operator_scope"}'
+          : "ok";
       context.onLine?.({ source: "stdout", line: stdout });
       return { code: 0, stdout, stderr: "" };
     },
@@ -174,8 +176,14 @@ test("retry repairs a missing Ollama runtime even when the v1.0.10 Ollama step w
     }
     if (url === "http://127.0.0.1:11434/api/generate") {
       trace.push("apiGenerate");
+      const request = JSON.parse(String(init?.body ?? "{}"));
+      assert.equal(request.think, false);
+      assert.equal(request.options.num_predict, 32);
       return new Response(JSON.stringify({
-        response: "READY",
+        response: "",
+        thinking: "READY",
+        done: true,
+        done_reason: "stop",
         eval_count: 1,
         eval_duration: 1_000_000_000,
         total_duration: 2_000_000_000,

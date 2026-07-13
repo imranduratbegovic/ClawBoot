@@ -19,7 +19,7 @@ const STEP_DEFINITIONS = [
 ];
 
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
-const CURRENT_SECURITY_BASELINE = 8;
+const CURRENT_SECURITY_BASELINE = 9;
 const PERMISSION_ACTIONS = {
   chat: ["permissionChat"],
   guarded: [
@@ -213,7 +213,7 @@ export function diagnoseSetupFailure(error, step = null) {
         code: "OLLAMA_RUNTIME_INCOMPLETE",
         problem: "Ollama cannot access its required inference-server executable.",
         reason: `${technical} This is caused by the installed runtime path or its permissions, not insufficient Raspberry Pi memory.`,
-        nextAction: "Install ClawBoot 1.1.1 or newer and press Retry. It repairs the existing Ollama files in place without redownloading the local model.",
+        nextAction: "Install the latest ClawBoot update and press Retry. It repairs the existing Ollama files in place without redownloading the local model.",
       };
     }
     return {
@@ -525,9 +525,10 @@ export async function createSetupService(options = {}) {
         body: JSON.stringify({
           model: MODEL_ID,
           prompt: "Reply with exactly READY.",
+          think: false,
           stream: false,
           keep_alive: "10m",
-          options: { num_ctx: 2048, num_predict: 8, temperature: 0 },
+          options: { num_ctx: 2048, num_predict: 32, temperature: 0 },
         }),
         signal,
       },
@@ -544,15 +545,20 @@ export async function createSetupService(options = {}) {
       totalDuration > 0 && evalDuration > 0
         ? Math.round((Math.max(0, totalDuration - evalDuration) / 1_000_000_000) * 1000) / 1000
         : null;
+    const visibleResponse = String(generated?.response ?? "").trim();
+    const thinkingResponse = String(generated?.thinking ?? "").trim();
+    const answered = Boolean(visibleResponse || thinkingResponse);
     return {
-      ok: Boolean(generated?.response),
+      ok: answered,
       model: MODEL_ID,
       provider: "ollama",
       baseUrl: OLLAMA_BASE_URL,
       latencyMs: Date.now() - started,
       tokensPerSecond,
       firstTokenSeconds,
-      response: String(generated?.response ?? "").trim().slice(0, 120),
+      response: visibleResponse.slice(0, 120),
+      thinkingOnly: !visibleResponse && Boolean(thinkingResponse),
+      ...(!answered ? { reason: `Ollama completed the Qwen health request but returned no visible or thinking output (done reason: ${generated?.done_reason ?? "unknown"}).` } : {}),
     };
   }
 
@@ -572,13 +578,16 @@ export async function createSetupService(options = {}) {
         ? { signal, gatewayToken, secrets: [gatewayToken] }
         : { signal };
     const result = jobId
-      ? await runAction(jobId, "openclawGatewayStatus", context)
-      : await runner.run("openclawGatewayStatus", context);
+      ? await runAction(jobId, "openclawGatewayProbe", context)
+      : await runner.run("openclawGatewayProbe", context);
+    const probe = parseCommandJson(result.stdout);
     return {
-      ok: result.code === 0,
+      ok: result.code === 0 && probe?.ok === true,
       gateway: `http://127.0.0.1:${GATEWAY_PORT}`,
       bind: "loopback",
       authenticated: true,
+      degraded: probe?.degraded === true,
+      capability: typeof probe?.capability === "string" ? probe.capability : null,
     };
   }
 
@@ -888,6 +897,7 @@ export async function createSetupService(options = {}) {
           ? { signal, gatewayToken, secrets: [gatewayToken] }
           : { signal };
       await runAction(jobId, "configurePrimaryModel", { signal });
+      await runAction(jobId, "configureLocalModelDefaults", { signal });
       await runAction(jobId, "disableCloudMemorySearch", { signal });
       await runAction(jobId, "denySmallModelWebTools", { signal });
       await runAction(jobId, "disableElevatedTools", { signal });
@@ -925,11 +935,11 @@ export async function createSetupService(options = {}) {
         await runAction(jobId, "restartOllama", { signal });
         model = await verifyModel({ signal, exercise: true });
       }
-      if (!model.ok) throw new Error(model.reason ?? "The local model did not answer its health check.");
+      if (!model.ok) throw new Error(model.reason ?? "The local model did not complete its inference health check.");
       await emit(jobId, {
         type: "log",
         source: "setup",
-        message: `${MODEL_ID} answered its local health check in ${model.latencyMs} ms.`,
+        message: `${MODEL_ID} completed its local inference health check in ${model.latencyMs} ms.`,
       });
       const agent = await verifyAgent({ signal, jobId });
       if (!agent.ok) throw new Error("The OpenClaw gateway health check failed.");

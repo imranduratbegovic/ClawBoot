@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-export const SERVICE_VERSION = "1.1.1";
+export const SERVICE_VERSION = "1.1.2";
 export const MODEL_ID = "qwen3.5:2b";
 export const OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const GATEWAY_PORT = 18789;

@@ -31,7 +31,7 @@ test("wires the wizard to the real resumable setup service", async () => {
   ]);
 
   assert.match(page, /qwen3\.5:2b/);
-  assert.match(page, /APP_VERSION = "1\.1\.1"/);
+  assert.match(page, /APP_VERSION = "1\.1\.2"/);
   assert.match(page, /background service is/);
   assert.match(page, /api\/v1\/status/);
   assert.match(page, /activeJobId/);

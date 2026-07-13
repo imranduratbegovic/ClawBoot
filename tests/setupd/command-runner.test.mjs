@@ -64,9 +64,10 @@ test("fixed install actions use the requested local model and noninteractive Ope
   await runner.run("openclawDoctorFix");
   await runner.run("openclawSecurityFix");
   await runner.run("openclawSecurityDeep");
-  await runner.run("openclawGatewayStatus");
+  await runner.run("openclawGatewayProbe");
   await runner.run("disableCloudMemorySearch");
   await runner.run("configurePrimaryModel");
+  await runner.run("configureLocalModelDefaults");
   await runner.run("denySmallModelWebTools");
   await runner.run("disableElevatedTools");
   await runner.run("validateOpenClawConfig");
@@ -79,15 +80,23 @@ test("fixed install actions use the requested local model and noninteractive Ope
   assert.deepEqual(calls[2].args, ["doctor", "--fix", "--non-interactive"]);
   assert.deepEqual(calls[3].args, ["security", "audit", "--fix", "--json"]);
   assert.deepEqual(calls[4].args, ["security", "audit", "--deep", "--json"]);
-  assert.deepEqual(calls[5].args, ["gateway", "status", "--require-rpc", "--json"]);
+  assert.deepEqual(calls[5].args, ["gateway", "probe", "--port", "18789", "--json"]);
   assert.deepEqual(calls[6].args, ["config", "set", "agents.defaults.memorySearch.enabled", "false", "--strict-json"]);
   assert.deepEqual(calls[7].args, ["config", "set", "agents.defaults.model.primary", '"ollama/qwen3.5:2b"', "--strict-json"]);
-  assert.deepEqual(calls[8].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
-  assert.deepEqual(calls[9].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
-  assert.deepEqual(calls[10].args, ["config", "validate", "--json"]);
-  assert.deepEqual(calls[11].args.slice(-2), [config.helperPath, "restart-ollama"]);
-  assert.deepEqual(calls[12].args.slice(-2), [config.helperPath, "ensure-ollama-runtime"]);
-  assert.deepEqual(calls[13].args, ["-x", "/usr/lib/ollama/llama-server"]);
+  assert.deepEqual(calls[8].args, [
+    "config",
+    "set",
+    "agents.defaults.models",
+    '{"ollama/qwen3.5:2b":{"params":{"thinking":false,"num_ctx":4096,"keep_alive":"10m"}}}',
+    "--strict-json",
+    "--merge",
+  ]);
+  assert.deepEqual(calls[9].args, ["config", "set", "tools.deny", '["group:web","browser"]', "--strict-json"]);
+  assert.deepEqual(calls[10].args, ["config", "set", "tools.elevated.enabled", "false", "--strict-json"]);
+  assert.deepEqual(calls[11].args, ["config", "validate", "--json"]);
+  assert.deepEqual(calls[12].args.slice(-2), [config.helperPath, "restart-ollama"]);
+  assert.deepEqual(calls[13].args.slice(-2), [config.helperPath, "ensure-ollama-runtime"]);
+  assert.deepEqual(calls[14].args, ["-x", "/usr/lib/ollama/llama-server"]);
   assert.equal(calls.every((call) => call.options.shell === false), true);
 });
 
@@ -106,7 +115,7 @@ test("gateway checks use the generated token without exposing it", async (t) => 
   const runner = new CommandRunner({ config, spawnImpl: fakeSpawner(calls, `token=${token}\n`) });
   await runner.prepare();
 
-  for (const action of ["openclawGatewayStatus", "openclawSecurityDeep"]) {
+  for (const action of ["openclawGatewayProbe", "openclawSecurityDeep"]) {
     await runner.run(action, { gatewayToken: token, onLine: ({ line }) => lines.push(line) });
   }
 

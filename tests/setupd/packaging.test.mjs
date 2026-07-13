@@ -48,6 +48,9 @@ test("Ollama service is loopback-only and capped for Raspberry Pi memory", async
   assert.match(runner, /case "installOllamaArm64"[\s\S]*timeoutMs: 3 \* 60 \* 60_000/);
   assert.match(service, /async verify\(\{ jobId, signal \}\)[\s\S]*runAction\(jobId, "ensureOllamaRuntime"[\s\S]*runAction\(jobId, "configureOllamaLoopback"/);
   assert.match(service, /runner\.run\("ollamaRuntimeStatus"[\s\S]*ollamaInstalled = false/);
+  assert.match(service, /runAction\(jobId, "configurePrimaryModel"[\s\S]*runAction\(jobId, "configureLocalModelDefaults"/);
+  assert.match(service, /think: false[\s\S]*num_predict: 32/);
+  assert.match(service, /runAction\(jobId, "openclawGatewayProbe"[\s\S]*probe\?\.ok === true/);
   assert.match(helper, /dpkg --configure -a/);
   assert.match(helper, /--fix-broken install -y/);
 });
